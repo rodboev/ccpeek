@@ -104,13 +104,29 @@ This will:
 - **Storage**: Reads JSONL files from `~/.claude/projects/`
 - **Port Management**: Automatically finds available ports starting from 8888
 
+### WSL2 Support
+When running inside WSL2, ccpeek automatically detects the environment and opens your default **Windows** browser via `cmd.exe /c start` instead of `xdg-open`, which avoids silent failures caused by the lack of a controlling TTY in background/daemon contexts.
+
+### Running as a systemd Service
+If you'd like ccpeek always available at `http://localhost:8888` (great for bookmarking), install it as a systemd user service:
+
+```bash
+cp contrib/ccpeek.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ccpeek.service
+```
+
+Check status with `systemctl --user status ccpeek`.
+
 ### File Structure
 ```
 ccpeek/
-├── ccpeek          # Main executable script
-├── server.py       # Python server with API endpoints
-├── index.html      # Single-page web application
-└── README.md       # This file
+├── ccpeek              # Main executable script
+├── server.py           # Python server with API endpoints
+├── index.html          # Single-page web application
+├── contrib/
+│   └── ccpeek.service  # systemd user service unit
+└── README.md           # This file
 ```
 
 ### API Endpoints

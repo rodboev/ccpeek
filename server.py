@@ -135,16 +135,34 @@ def find_free_port(start_port=DEFAULT_PORT):
             port += 1
     return None
 
+def _is_wsl():
+    """Detect if running inside WSL."""
+    try:
+        with open('/proc/version', 'r') as f:
+            return 'microsoft' in f.read().lower()
+    except OSError:
+        return False
+
 def open_browser(host, port):
     """Open browser after a short delay"""
     time.sleep(0.5)
     url = f'http://{host}:{port}'
-    
+
+    # WSL2: open on the Windows side so the user's default browser launches
+    if _is_wsl():
+        try:
+            subprocess.Popen(['cmd.exe', '/c', 'start', url],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+            return
+        except FileNotFoundError:
+            pass  # cmd.exe not on PATH — fall through
+
     # Use xdg-open to respect system's default browser
     try:
         # Use setsid to detach browser from our process group
-        subprocess.Popen(['setsid', 'xdg-open', url], 
-                        stdout=subprocess.DEVNULL, 
+        subprocess.Popen(['setsid', 'xdg-open', url],
+                        stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True)
     except:
