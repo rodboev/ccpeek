@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ccpeek - Claude Chat History Viewer</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0e0e0e;
+            color: #e3e3e3;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: #171717;
+            border-right: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            transition: margin-left 0.3s;
+        }
+
+        .sidebar.collapsed {
+            margin-left: -280px;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #2a2a2a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: -1px;
+            display: flex;
+            align-items: baseline;
+        }
+
+        .logo-cc {
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .logo-peek {
+            font-weight: 700;
+            color: #999;
+        }
+
+        .conversations-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .conversation-item {
+            padding: 12px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            position: relative;
+        }
+
+        .conversation-item:hover {
+            background: #1f1f1f;
+        }
+
+        .conversation-item.active {
+            background: #2a2a2a;
+            border-color: #3a3a3a;
+        }
+
+        .conversation-item.matches-search {
+            border-left: 3px solid #4a9eff;
+        }
+
+        .conversation-title {
+            font-size: 14px;
+            margin-bottom: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .conversation-meta {
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .match-count {
+            background: #4a9eff22;
+            color: #4a9eff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .main-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #2a2a2a;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .toggle-sidebar-main {
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .toggle-sidebar-main:hover {
+            background: #2a2a2a;
+        }
+
+        .search-wrapper {
+            flex: 1;
+            max-width: 600px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .global-search {
+            flex: 1;
+            position: relative;
+        }
+
+        .global-search input {
+            width: 100%;
+            padding: 10px 16px;
+            padding-right: 140px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            color: #e3e3e3;
+            font-size: 14px;
+        }
+        
+        .clear-search {
+            position: absolute;
+            right: 100px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 16px;
+            transition: all 0.2s;
+            display: none;
+        }
+        
+        .clear-search:hover {
+            background: #2a2a2a;
+            color: #fff;
+        }
+        
+        .clear-search.show {
+            display: block;
+        }
+
+        .global-search input:focus {
+            outline: none;
+            border-color: #4a4a4a;
+            background: #0e0e0e;
+        }
+
+        .search-info {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .search-nav {
+            display: flex;
+            gap: 4px;
+        }
+
+        .search-nav button {
+            background: #2a2a2a;
+            border: none;
+            color: #999;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .search-nav button:hover:not(:disabled) {
+            background: #3a3a3a;
+            color: #fff;
+        }
+
+        .search-nav button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-btn {
+            background: none;
+            border: 1px solid #2a2a2a;
+            color: #999;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .action-btn:hover {
+            background: #2a2a2a;
+            color: #fff;
+            border-color: #3a3a3a;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            position: relative;
+        }
+
+        .message {
+            margin-bottom: 24px;
+            display: flex;
+            gap: 16px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+            width: 100%;
+            position: relative;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #4a5568;
+        }
+
+        .message.assistant .message-avatar {
+            background: #d97706;
+        }
+
+        .message-content {
+            flex: 1;
+            line-height: 1.6;
+            position: relative;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .message-role {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .copy-btn {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: all 0.2s;
+            opacity: 0;
+        }
+
+        .message:hover .copy-btn {
+            opacity: 1;
+        }
+
+        .copy-btn:hover {
+            background: #2a2a2a;
+            color: #fff;
+        }
+
+        .copy-btn.copied {
+            color: #4ade80;
+        }
+
+        .message-text {
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .message-text code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+        }
+
+        .message-text pre {
+            background: #1a1a1a;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 12px 0;
+            position: relative;
+        }
+
+        .message-text pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .thinking-block {
+            background: #1a1f2e;
+            border: 1px solid #2a3f5f;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 8px 0;
+            font-style: italic;
+            color: #9ca3af;
+            position: relative;
+        }
+        
+        .thinking-header {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-style: normal;
+        }
+
+        .tool-use {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            margin: 8px 0;
+            overflow: hidden;
+        }
+
+        .tool-use-header {
+            font-size: 12px;
+            color: #999;
+            padding: 8px 12px;
+            background: #0e0e0e;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tool-use-header:hover {
+            background: #1a1a1a;
+        }
+
+        .tool-use-content {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            color: #a8a8a8;
+            padding: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .tool-use.collapsed .tool-use-content {
+            display: none;
+        }
+
+        .tool-use-toggle {
+            font-size: 10px;
+            color: #666;
+        }
+
+        .highlight {
+            background: #fbbf24;
+            color: #000;
+            padding: 1px 3px;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .highlight.current {
+            background: #fb923c;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #666;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #666;
+        }
+
+        .empty-state h2 {
+            margin-bottom: 8px;
+            color: #999;
+        }
+
+        .timestamp {
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .message.tool-filtered {
+            display: none;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3a3a3a;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4a4a4a;
+        }
+
+        /* Keyboard shortcuts help */
+        .shortcuts-help {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            color: #666;
+            display: none;
+        }
+
+        .shortcuts-help.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-cc">cc</span><span class="logo-peek">peek</span>
+            </div>
+        </div>
+        <div class="conversations-list" id="conversationsList">
+            <div class="loading">Loading conversations...</div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="main-header">
+            <button class="toggle-sidebar-main" onclick="toggleSidebar()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12h18M3 6h18M3 18h18"/>
+                </svg>
+            </button>
+            <div class="search-wrapper">
+                <div class="global-search">
+                    <input type="text" id="globalSearch" placeholder="Search everything... (Press '/' to focus)">
+                    <button class="clear-search" id="clearSearch" onclick="clearSearch()">✕</button>
+                    <div class="search-info" id="searchInfo" style="display: none;">
+                        <span id="searchCount">0/0</span>
+                        <div class="search-nav">
+                            <button onclick="navigateSearch('prev')" id="prevBtn">↑</button>
+                            <button onclick="navigateSearch('next')" id="nextBtn">↓</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="action-buttons">
+                <button class="action-btn" onclick="toggleFilter()" id="filterBtn" style="display: none;">
+                    <span>🔽</span> Show Tools
+                </button>
+                <button class="action-btn" onclick="exportConversation()" id="exportBtn" style="display: none;">
+                    <span>📥</span> Export
+                </button>
+            </div>
+        </div>
+        <div class="messages-container" id="messagesContainer">
+            <div class="empty-state">
+                <h2>Select a conversation</h2>
+                <p>Choose a conversation from the sidebar to view its messages</p>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="shortcuts-help" id="shortcutsHelp">
+        <strong>Keyboard Shortcuts:</strong><br>
+        / - Search<br>
+        Esc - Clear search<br>
+        j/k - Navigate chats<br>
+        Enter - Open chat<br>
+        n/p - Next/prev result<br>
+        ? - Toggle help
+    </div>
+
+    <script>
+        let allConversations = [];
+        let currentConversation = null;
+        let allMessages = [];
+        let searchResults = [];
+        let currentSearchIndex = 0;
+        let searchTerm = '';
+        let selectedConvIndex = 0;
+        let filterToolsEnabled = true; // Start with tools hidden
+
+        // Load conversations on startup
+        async function loadConversations() {
+            try {
+                const response = await fetch('/api/conversations');
+                allConversations = await response.json();
+                renderConversations(allConversations);
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+                document.getElementById('conversationsList').innerHTML = 
+                    '<div class="empty-state"><p>Error loading conversations</p></div>';
+            }
+        }
+
+        function renderConversations(conversations, searchMatches = {}) {
+            const container = document.getElementById('conversationsList');
+            
+            if (conversations.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No conversations found</p></div>';
+                return;
+            }
+
+            container.innerHTML = conversations.map((conv, index) => {
+                const date = new Date(conv.timestamp || conv.modified * 1000);
+                const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                const matchCount = searchMatches[conv.id] || 0;
+                const hasMatches = matchCount > 0;
+                
+                return `
+                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''}" 
+                         data-id="${conv.id}" 
+                         data-index="${index}"
+                         onclick="loadConversation('${conv.id}')">
+                        <div class="conversation-title">${escapeHtml(conv.title)}</div>
+                        <div class="conversation-meta">
+                            <span>${dateStr}</span>
+                            ${hasMatches ? `<span class="match-count">${matchCount} matches</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadConversation(conversationId) {
+            // Update active state
+            document.querySelectorAll('.conversation-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelector(`[data-id="${conversationId}"]`)?.classList.add('active');
+
+            currentConversation = conversationId;
+            document.getElementById('exportBtn').style.display = 'block';
+            document.getElementById('filterBtn').style.display = 'block';
+            
+            // Show loading
+            document.getElementById('messagesContainer').innerHTML = '<div class="loading">Loading messages...</div>';
+
+            try {
+                const response = await fetch(`/api/conversation/${conversationId}`);
+                allMessages = await response.json();
+                renderMessages(allMessages);
+                
+                // Re-apply search highlighting in messages if there's an active search
+                if (searchTerm) {
+                    // Only update message highlighting, not the sidebar
+                    searchResults = [];
+                    allMessages.forEach((msg, msgIndex) => {
+                        if (msg.message && msg.message.content) {
+                            const content = typeof msg.message.content === 'string' 
+                                ? msg.message.content 
+                                : JSON.stringify(msg.message.content);
+                            
+                            const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                            const matches = content.match(regex);
+                            
+                            if (matches) {
+                                matches.forEach(() => {
+                                    searchResults.push({ messageIndex: msgIndex });
+                                });
+                            }
+                        }
+                    });
+                    
+                    if (searchResults.length > 0) {
+                        currentSearchIndex = 0;
+                        updateSearchInfo();
+                        renderMessages(allMessages, searchTerm);
+                        scrollToCurrentMatch();
+                    } else {
+                        renderMessages(allMessages, searchTerm);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading conversation:', error);
+                document.getElementById('messagesContainer').innerHTML = 
+                    '<div class="empty-state"><p>Error loading conversation</p></div>';
+            }
+        }
+
+        function renderMessages(messages, highlightTerm = '') {
+            const container = document.getElementById('messagesContainer');
+            
+            const messageHtml = messages.map((msg, index) => {
+                if (msg.type === 'user' && msg.message) {
+                    return renderUserMessage(msg, index, highlightTerm);
+                } else if (msg.type === 'assistant' && msg.message) {
+                    return renderAssistantMessage(msg, index, highlightTerm);
+                }
+                return '';
+            }).filter(html => html).join('');
+
+            container.innerHTML = messageHtml || '<div class="empty-state"><p>No messages in this conversation</p></div>';
+            
+            // Add tool use toggle functionality
+            document.querySelectorAll('.tool-use-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    header.parentElement.classList.toggle('collapsed');
+                    const toggle = header.querySelector('.tool-use-toggle');
+                    toggle.textContent = header.parentElement.classList.contains('collapsed') ? '▶' : '▼';
+                });
+            });
+        }
+
+        function highlightText(text, term) {
+            if (!term) return text;
+            
+            const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            let matchIndex = 0;
+            return text.replace(regex, (match) => {
+                const isCurrent = matchIndex === currentSearchIndex;
+                matchIndex++;
+                return `<span class="highlight ${isCurrent ? 'current' : ''}" data-match-index="${matchIndex - 1}">${match}</span>`;
+            });
+        }
+
+        function renderUserMessage(msg, index, highlightTerm) {
+            let content = '';
+            const message = msg.message;
+            
+            // Check if this is actually a tool result message
+            let isToolResult = false;
+            if (message.content && Array.isArray(message.content)) {
+                isToolResult = message.content.some(item => item.type === 'tool_result');
+            }
+            
+            // Check if this is a local command message (contains specific tags)
+            let isLocalCommand = false;
+            if (message.content && typeof message.content === 'string') {
+                isLocalCommand = message.content.includes('<command-name>') || 
+                               message.content.includes('<local-command-stdout>') ||
+                               message.content.includes('Caveat: The messages below were generated by the user while running local commands');
+            }
+            
+            // Skip rendering local command messages entirely
+            if (isLocalCommand) {
+                return '';
+            }
+            
+            if (message.content) {
+                if (typeof message.content === 'string') {
+                    content = highlightTerm ? highlightText(escapeHtml(message.content), highlightTerm) : escapeHtml(message.content);
+                } else if (Array.isArray(message.content)) {
+                    // If it's a tool result, render it differently
+                    if (isToolResult) {
+                        content = message.content.map(item => {
+                            if (item.type === 'tool_result') {
+                                const toolContent = escapeHtml(item.content || '');
+                                return `<div class="tool-use">
+                                    <div class="tool-use-header">
+                                        <span>Tool Result${item.tool_use_id ? ` (${item.tool_use_id.slice(-8)})` : ''}</span>
+                                        <span class="tool-use-toggle">▼</span>
+                                    </div>
+                                    <div class="tool-use-content">${highlightTerm ? highlightText(toolContent, highlightTerm) : toolContent}</div>
+                                </div>`;
+                            }
+                            return '';
+                        }).join('');
+                    } else {
+                        // Regular user message with text content
+                        content = message.content.map(item => {
+                            if (item.type === 'text') {
+                                const text = escapeHtml(item.text || '');
+                                return highlightTerm ? highlightText(text, highlightTerm) : text;
+                            }
+                            return '';
+                        }).join('');
+                    }
+                }
+            }
+
+            const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+
+            // Tool results get a different avatar and role
+            if (isToolResult) {
+                return `
+                    <div class="message tool-result ${filterToolsEnabled ? 'tool-filtered' : ''}" data-message-index="${index}" data-is-tool="true">
+                        <div class="message-avatar" style="background: transparent; font-size: 20px;">📤</div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <div class="message-role">Tool Result</div>
+                                <button class="copy-btn" onclick="copyMessage(this, ${index})">Copy</button>
+                            </div>
+                            <div class="message-text">${content}</div>
+                            ${timestamp ? `<div class="timestamp">${timestamp}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="message user" data-message-index="${index}">
+                    <div class="message-avatar">U</div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <div class="message-role">User</div>
+                            <button class="copy-btn" onclick="copyMessage(this, ${index})">Copy</button>
+                        </div>
+                        <div class="message-text">${content}</div>
+                        ${timestamp ? `<div class="timestamp">${timestamp}</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAssistantMessage(msg, index, highlightTerm) {
+            let content = '';
+            const message = msg.message;
+            
+            // Check if this message contains tool uses
+            let hasToolUse = false;
+            let toolName = '';
+            
+            if (message.content && Array.isArray(message.content)) {
+                const toolUse = message.content.find(item => item.type === 'tool_use');
+                if (toolUse) {
+                    hasToolUse = true;
+                    toolName = toolUse.name || 'Tool Use';
+                }
+            }
+            
+            if (message.content) {
+                if (typeof message.content === 'string') {
+                    content = formatMarkdown(escapeHtml(message.content));
+                    if (highlightTerm) content = highlightText(content, highlightTerm);
+                } else if (Array.isArray(message.content)) {
+                    content = message.content.map(item => {
+                        if (item.type === 'text') {
+                            let text = formatMarkdown(item.text || '');
+                            return highlightTerm ? highlightText(text, highlightTerm) : text;
+                        } else if (item.type === 'thinking') {
+                            const thinkingText = escapeHtml(item.thinking || '');
+                            return `<div class="thinking-block">
+                                <div class="thinking-header">💭 Thinking</div>
+                                <div>${highlightTerm ? highlightText(thinkingText, highlightTerm) : thinkingText}</div>
+                            </div>`;
+                        } else if (item.type === 'tool_use') {
+                            const toolContent = escapeHtml(JSON.stringify(item.input, null, 2));
+                            return `<div class="tool-use collapsed">
+                                <div class="tool-use-header">
+                                    <span>${escapeHtml(item.name || 'Tool Use')}</span>
+                                    <span class="tool-use-toggle">▶</span>
+                                </div>
+                                <div class="tool-use-content">${highlightTerm ? highlightText(toolContent, highlightTerm) : toolContent}</div>
+                            </div>`;
+                        }
+                        return '';
+                    }).join('');
+                }
+            }
+
+            const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+
+            // Use wrench emoji for tool uses, Claude avatar for regular messages
+            const avatar = hasToolUse ? '🔧' : 'C';
+            const avatarStyle = hasToolUse ? 'background: transparent; font-size: 20px;' : '';
+            const roleLabel = hasToolUse ? toolName : 'Claude';
+
+            return `
+                <div class="message assistant ${hasToolUse ? (filterToolsEnabled ? 'tool-filtered' : '') : ''}" data-message-index="${index}" data-is-tool="${hasToolUse}">
+                    <div class="message-avatar" ${avatarStyle ? `style="${avatarStyle}"` : ''}>${avatar}</div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <div class="message-role">${roleLabel}</div>
+                            <button class="copy-btn" onclick="copyMessage(this, ${index})">Copy</button>
+                        </div>
+                        <div class="message-text">${content}</div>
+                        ${timestamp ? `<div class="timestamp">${timestamp}</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatMarkdown(text) {
+            // Basic markdown formatting
+            let formatted = text;
+            
+            // Code blocks
+            formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+                return `<pre><code>${code}</code></pre>`;
+            });
+            
+            // Inline code
+            formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Bold
+            formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // Italic
+            formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            
+            return formatted;
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+        }
+
+        function clearSearch() {
+            document.getElementById('globalSearch').value = '';
+            document.getElementById('clearSearch').classList.remove('show');
+            performSearch('');
+        }
+        
+        async function performSearch(term) {
+            searchTerm = term.toLowerCase();
+            
+            // Show/hide clear button
+            const clearBtn = document.getElementById('clearSearch');
+            if (searchTerm) {
+                clearBtn.classList.add('show');
+            } else {
+                clearBtn.classList.remove('show');
+            }
+            
+            if (!searchTerm) {
+                renderConversations(allConversations);
+                if (currentConversation) {
+                    renderMessages(allMessages);
+                }
+                document.getElementById('searchInfo').style.display = 'none';
+                return;
+            }
+
+            // Search across all conversations and count matches
+            const searchMatches = {};
+            let totalMatches = 0;
+            
+            // First, search through loaded messages if we have a conversation open
+            if (currentConversation && allMessages.length > 0) {
+                searchResults = [];
+                allMessages.forEach((msg, msgIndex) => {
+                    if (msg.message && msg.message.content) {
+                        const content = typeof msg.message.content === 'string' 
+                            ? msg.message.content 
+                            : JSON.stringify(msg.message.content);
+                        
+                        const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                        const matches = content.match(regex);
+                        
+                        if (matches) {
+                            matches.forEach(() => {
+                                searchResults.push({ messageIndex: msgIndex });
+                            });
+                        }
+                    }
+                });
+                
+                if (searchResults.length > 0) {
+                    searchMatches[currentConversation] = searchResults.length;
+                    totalMatches = searchResults.length;
+                    currentSearchIndex = 0;
+                    updateSearchInfo();
+                    renderMessages(allMessages, searchTerm);
+                    scrollToCurrentMatch();
+                }
+            }
+
+            // Search through all conversation titles
+            const filteredConversations = allConversations.filter(conv => {
+                const titleMatch = conv.title.toLowerCase().includes(searchTerm);
+                if (titleMatch && !searchMatches[conv.id]) {
+                    searchMatches[conv.id] = 1; // At least 1 match in title
+                }
+                return titleMatch || searchMatches[conv.id] > 0;
+            });
+
+            // Only update sidebar if search changed, not when selecting a conversation
+            if (!currentConversation || searchTerm !== '') {
+                renderConversations(filteredConversations, searchMatches);
+            }
+        }
+
+        function navigateSearch(direction) {
+            if (searchResults.length === 0) return;
+            
+            if (direction === 'next') {
+                currentSearchIndex = (currentSearchIndex + 1) % searchResults.length;
+            } else {
+                currentSearchIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+            }
+            
+            updateSearchInfo();
+            renderMessages(allMessages, searchTerm);
+            scrollToCurrentMatch();
+        }
+
+        function updateSearchInfo() {
+            const info = document.getElementById('searchInfo');
+            const count = document.getElementById('searchCount');
+            
+            if (searchResults.length > 0) {
+                info.style.display = 'flex';
+                count.textContent = `${currentSearchIndex + 1}/${searchResults.length}`;
+                
+                document.getElementById('prevBtn').disabled = searchResults.length <= 1;
+                document.getElementById('nextBtn').disabled = searchResults.length <= 1;
+            } else {
+                info.style.display = 'none';
+            }
+        }
+
+        function scrollToCurrentMatch() {
+            const highlights = document.querySelectorAll('.highlight');
+            if (highlights[currentSearchIndex]) {
+                highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        function copyMessage(btn, messageIndex) {
+            const msg = allMessages[messageIndex];
+            let textToCopy = '';
+            
+            if (msg.message && msg.message.content) {
+                if (typeof msg.message.content === 'string') {
+                    textToCopy = msg.message.content;
+                } else if (Array.isArray(msg.message.content)) {
+                    textToCopy = msg.message.content.map(item => {
+                        if (item.type === 'text') return item.text || '';
+                        if (item.type === 'tool_use') return `Tool: ${item.name}\n${JSON.stringify(item.input, null, 2)}`;
+                        if (item.type === 'tool_result') return `Tool Result: ${item.content}`;
+                        return '';
+                    }).join('\n');
+                }
+            }
+            
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+
+        function exportConversation() {
+            if (!currentConversation || !allMessages.length) return;
+            
+            let markdown = `# Conversation Export\n\n`;
+            markdown += `**Date:** ${new Date().toLocaleString()}\n\n---\n\n`;
+            
+            allMessages.forEach(msg => {
+                // Skip tool messages if filter is enabled
+                let skipMessage = false;
+                
+                if (msg.type === 'user' && msg.message) {
+                    // Skip local command messages
+                    if (typeof msg.message.content === 'string' && 
+                        (msg.message.content.includes('<command-name>') || 
+                         msg.message.content.includes('<local-command-stdout>') ||
+                         msg.message.content.includes('Caveat: The messages below were generated'))) {
+                        return;
+                    }
+                    
+                    // Skip tool results if filter is enabled
+                    if (filterToolsEnabled && Array.isArray(msg.message.content)) {
+                        const hasToolResult = msg.message.content.some(item => item.type === 'tool_result');
+                        if (hasToolResult) return;
+                    }
+                    
+                    markdown += `## User\n\n`;
+                    if (typeof msg.message.content === 'string') {
+                        markdown += msg.message.content + '\n\n';
+                    } else if (Array.isArray(msg.message.content)) {
+                        msg.message.content.forEach(item => {
+                            if (item.type === 'text') markdown += item.text + '\n\n';
+                        });
+                    }
+                } else if (msg.type === 'assistant' && msg.message) {
+                    // Skip tool uses if filter is enabled
+                    if (filterToolsEnabled && Array.isArray(msg.message.content)) {
+                        const hasToolUse = msg.message.content.some(item => item.type === 'tool_use');
+                        if (hasToolUse) return;
+                    }
+                    
+                    markdown += `## Claude\n\n`;
+                    if (typeof msg.message.content === 'string') {
+                        markdown += msg.message.content + '\n\n';
+                    } else if (Array.isArray(msg.message.content)) {
+                        msg.message.content.forEach(item => {
+                            if (item.type === 'text') markdown += item.text + '\n\n';
+                            if (!filterToolsEnabled && item.type === 'tool_use') {
+                                markdown += `**Tool:** ${item.name}\n\`\`\`json\n${JSON.stringify(item.input, null, 2)}\n\`\`\`\n\n`;
+                            }
+                        });
+                    }
+                }
+                markdown += '---\n\n';
+            });
+            
+            const blob = new Blob([markdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `conversation-${currentConversation}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function toggleFilter() {
+            filterToolsEnabled = !filterToolsEnabled;
+            const btn = document.getElementById('filterBtn');
+            btn.innerHTML = filterToolsEnabled ? '<span>🔽</span> Show Tools' : '<span>🔼</span> Hide Tools';
+            
+            // Toggle visibility of tool messages
+            document.querySelectorAll('[data-is-tool="true"]').forEach(elem => {
+                if (filterToolsEnabled) {
+                    elem.classList.add('tool-filtered');
+                } else {
+                    elem.classList.remove('tool-filtered');
+                }
+            });
+        }
+
+        // Search functionality
+        document.getElementById('globalSearch').addEventListener('input', (e) => {
+            performSearch(e.target.value);
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            const activeElement = document.activeElement;
+            const isInputFocused = activeElement.tagName === 'INPUT';
+            
+            // Press '/' to focus search
+            if (e.key === '/' && !isInputFocused) {
+                e.preventDefault();
+                document.getElementById('globalSearch').focus();
+            }
+            
+            // Press 'Escape' to blur search and clear
+            if (e.key === 'Escape') {
+                document.activeElement.blur();
+                if (searchTerm) {
+                    document.getElementById('globalSearch').value = '';
+                    performSearch('');
+                }
+            }
+            
+            // Navigate search results with n/p
+            if (!isInputFocused && searchResults.length > 0) {
+                if (e.key === 'n') {
+                    e.preventDefault();
+                    navigateSearch('next');
+                } else if (e.key === 'p') {
+                    e.preventDefault();
+                    navigateSearch('prev');
+                }
+            }
+            
+            // Navigate conversations with j/k
+            if (!isInputFocused) {
+                const convItems = document.querySelectorAll('.conversation-item');
+                if (e.key === 'j' && convItems.length > 0) {
+                    e.preventDefault();
+                    selectedConvIndex = Math.min(selectedConvIndex + 1, convItems.length - 1);
+                    convItems[selectedConvIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    convItems.forEach(item => item.style.outline = 'none');
+                    convItems[selectedConvIndex].style.outline = '2px solid #4a9eff';
+                } else if (e.key === 'k' && convItems.length > 0) {
+                    e.preventDefault();
+                    selectedConvIndex = Math.max(selectedConvIndex - 1, 0);
+                    convItems[selectedConvIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    convItems.forEach(item => item.style.outline = 'none');
+                    convItems[selectedConvIndex].style.outline = '2px solid #4a9eff';
+                } else if (e.key === 'Enter' && convItems[selectedConvIndex]) {
+                    e.preventDefault();
+                    convItems[selectedConvIndex].click();
+                }
+            }
+            
+            // Show help with ?
+            if (e.key === '?' && !isInputFocused) {
+                e.preventDefault();
+                const help = document.getElementById('shortcutsHelp');
+                help.classList.toggle('show');
+                setTimeout(() => help.classList.remove('show'), 5000);
+            }
+        });
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            loadConversations();
+        }, 30000);
+
+        // Load conversations on page load
+        loadConversations();
+    </script>
+</body>
+</html>
