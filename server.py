@@ -12,7 +12,6 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 from pathlib import Path
-import shutil
 import socket
 import sys
 
@@ -185,23 +184,10 @@ def open_browser(host, port):
         except FileNotFoundError:
             pass  # cmd.exe not on PATH — fall through
 
-    # Native Linux: use xdg-open (from xdg-utils) to respect default browser
-    if shutil.which('xdg-open'):
-        try:
-            subprocess.Popen(['setsid', 'xdg-open', url],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            start_new_session=True)
-            return
-        except OSError:
-            pass  # setsid missing — fall through
-    else:
-        print("Note: xdg-open not found. Install xdg-utils for native browser launch.")
-
-    # Fallback to Python's webbrowser module
-    try:
-        webbrowser.open(url)
-    except Exception:
+    # Native Linux: webbrowser module tries xdg-open, gio, x-www-browser,
+    # firefox, chrome, and more — with start_new_session for process isolation.
+    # Also respects the BROWSER env var for power users.
+    if not webbrowser.open(url):
         print(f"Could not auto-open browser. Please visit: {url}")
 
 def resolve_display_host(host):
