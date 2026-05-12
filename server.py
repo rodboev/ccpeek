@@ -283,6 +283,18 @@ def verify_ccpeek_instance(host, port):
     finally:
         conn.close()
 
+def find_free_port(start_port=DEFAULT_PORT):
+    """Find a free port starting from start_port."""
+    port = start_port
+    while port < start_port + 100:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', port))
+                return port
+        except OSError:
+            port += 1
+    return None
+
 def _is_wsl():
     """Detect if running inside WSL."""
     try:
@@ -467,8 +479,12 @@ def main(argv=None):
                 open_browser(host if host != 'localhost' else '127.0.0.1', args.port)
             sys.exit(0)
         else:
-            print(f"Port {args.port} in use by another service")
-            sys.exit(1)
+            # Port in use by another service - find a free port
+            args.port = find_free_port(args.port + 1)
+            if args.port is None:
+                print("Could not find a free port in range")
+                sys.exit(1)
+            print(f"Port in use by another service, using port {args.port}")
 
     # --setup is config-only; don't start a server
     if args.setup:
