@@ -562,6 +562,9 @@
                 </div>
             </div>
             <div class="action-buttons">
+                <button class="action-btn" onclick="toggleInternalThreads()" id="internalBtn">
+                    <span>👁</span> <span id="internalBtnText">Show Internal</span>
+                </button>
                 <button class="action-btn" onclick="toggleFilter()" id="filterBtn" style="display: none;">
                     <span>🔽</span> Show Tools
                 </button>
@@ -598,17 +601,19 @@
         let searchTerm = '';
         let selectedConvIndex = 0;
         let filterToolsEnabled = true; // Start with tools hidden
+        let showInternalThreads = false; // Hide internal/subagent threads by default
         let searchDebounceTimer = null;
+        let rawSearchMatches = {}; // Store unfiltered search results for client-side filtering
 
         // Load conversations on startup
         async function loadConversations() {
             try {
-                const response = await fetch('/api/conversations');
+                const response = await fetch(`/api/conversations?include_internal=${showInternalThreads}`);
                 allConversations = await response.json();
                 renderConversations(allConversations);
             } catch (error) {
                 console.error('Error loading conversations:', error);
-                document.getElementById('conversationsList').innerHTML = 
+                document.getElementById('conversationsList').innerHTML =
                     '<div class="empty-state"><p>Error loading conversations</p></div>';
             }
         }
@@ -634,7 +639,7 @@
                          data-id="${conv.id}"
                          onclick="loadConversation('${conv.id}')">
                         <div class="conversation-title">${escapeHtml(conv.title)}</div>
-                        ${hasMatches && snippet ? `<div class="match-snippet">${escapeHtml(snippet)}</div>` : ''}
+                        ${hasMatches && snippet ? `<div class="match-snippet">${searchTerm ? escapeHtml(snippet).replace(new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<span class="highlight">$1</span>') : escapeHtml(snippet)}</div>` : ''}
                         <div class="conversation-meta">
                             <span>${dateStr}</span>
                             ${hasMatches ? `<span class="match-count">${matchCount} matches</span>` : ''}
@@ -659,7 +664,7 @@
             document.getElementById('messagesContainer').innerHTML = '<div class="loading">Loading messages...</div>';
 
             try {
-                const response = await fetch(`/api/conversation/${conversationId}`);
+                const response = await fetch(`/api/conversation/${conversationId}?include_internal=${showInternalThreads}`);
                 const data = await response.json();
 
                 // Check for error response from server
@@ -678,33 +683,7 @@
 
                 // Re-apply search highlighting in messages if there's an active search
                 if (searchTerm) {
-                    // Only update message highlighting, not the sidebar
-                    searchResults = [];
-                    allMessages.forEach((msg, msgIndex) => {
-                        if (msg.message && msg.message.content) {
-                            const content = typeof msg.message.content === 'string'
-                                ? msg.message.content
-                                : JSON.stringify(msg.message.content);
-
-                            const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-                            const matches = content.match(regex);
-
-                            if (matches) {
-                                matches.forEach(() => {
-                                    searchResults.push({ messageIndex: msgIndex });
-                                });
-                            }
-                        }
-                    });
-
-                    if (searchResults.length > 0) {
-                        currentSearchIndex = 0;
-                        updateSearchInfo();
-                        renderMessages(allMessages, searchTerm);
-                        scrollToCurrentMatch();
-                    } else {
-                        renderMessages(allMessages, searchTerm);
-                    }
+                    updateMessageSearchResults();
                 }
             } catch (error) {
                 console.error('Error loading conversation:', error);
@@ -943,6 +922,72 @@
             performSearch('');
         }
         
+        function getVisibleMatchCount(match) {
+            // Calculate visible match count based on current tool filter state
+            if (!match) return 0;
+            const textCount = match.text_count || 0;
+            const toolCount = match.tool_count || 0;
+            // When tools hidden, only count text matches; when shown, count both
+            return filterToolsEnabled ? textCount : (textCount + toolCount);
+        }
+
+        function applySearchFilters() {
+            // Filter raw results based on current toggle states and render
+            const container = document.getElementById('conversationsList');
+
+            // Build filtered matches object with visible counts
+            const filteredMatches = {};
+            let hasAnyMatches = false;
+
+            for (const [convId, match] of Object.entries(rawSearchMatches)) {
+                // Skip internal threads if not showing them
+                if (match.is_internal && !showInternalThreads) {
+                    continue;
+                }
+
+                const visibleCount = getVisibleMatchCount(match);
+                if (visibleCount > 0) {
+                    filteredMatches[convId] = {
+                        count: visibleCount,
+                        snippet: match.snippet || ''
+                    };
+                    hasAnyMatches = true;
+                }
+            }
+
+            // Also check title matches from loaded conversations
+            allConversations.forEach(conv => {
+                if (conv.title.toLowerCase().includes(searchTerm)) {
+                    if (!filteredMatches[conv.id]) {
+                        filteredMatches[conv.id] = { count: 1, snippet: '' };
+                    } else {
+                        filteredMatches[conv.id].count += 1;
+                    }
+                    hasAnyMatches = true;
+                }
+            });
+
+            // Filter conversations to those with visible matches
+            const filteredConversations = allConversations.filter(conv => {
+                const match = filteredMatches[conv.id];
+                return match && match.count > 0;
+            });
+
+            if (filteredConversations.length === 0 && Object.keys(rawSearchMatches).length > 0) {
+                // Has matches but none visible with current filters
+                container.innerHTML = '<div class="empty-state"><p>No matches with current filters</p><p style="font-size: 12px; color: #666;">Try adjusting Show Tools or Show Internal settings</p></div>';
+            } else if (filteredConversations.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No matches found</p></div>';
+            } else {
+                renderConversations(filteredConversations, filteredMatches);
+            }
+
+            // Update message highlighting if a conversation is loaded
+            if (currentConversation && allMessages.length > 0) {
+                updateMessageSearchResults();
+            }
+        }
+
         async function performSearch(term) {
             searchTerm = term.toLowerCase();
 
@@ -955,6 +1000,7 @@
             }
 
             if (!searchTerm) {
+                rawSearchMatches = {};
                 renderConversations(allConversations);
                 if (currentConversation) {
                     renderMessages(allMessages);
@@ -967,69 +1013,73 @@
             const container = document.getElementById('conversationsList');
             container.innerHTML = '<div class="empty-state"><p>Searching...</p></div>';
 
-            // Search across all conversations via server-side API
-            let searchMatches = {};
+            // Search across all conversations via server-side API (always includes internal)
             try {
                 const response = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
                 const data = await response.json();
-                searchMatches = data.matches || {};
+                rawSearchMatches = data.matches || {};
             } catch (error) {
                 console.error('Error searching:', error);
                 container.innerHTML = '<div class="empty-state"><p>Search failed</p></div>';
                 return;
             }
 
-            // Also match conversation titles
-            allConversations.forEach(conv => {
-                if (conv.title.toLowerCase().includes(searchTerm)) {
-                    if (!searchMatches[conv.id]) {
-                        searchMatches[conv.id] = { count: 0, snippet: '' };
-                    } else if (typeof searchMatches[conv.id] === 'number') {
-                        // Handle legacy format
-                        searchMatches[conv.id] = { count: searchMatches[conv.id], snippet: '' };
+            // Apply filters and render
+            applySearchFilters();
+        }
+
+        function updateMessageSearchResults() {
+            // Update search results for currently loaded messages
+            // Only search visible content (exclude tool content when tools are hidden)
+            if (!currentConversation || allMessages.length === 0) return;
+
+            searchResults = [];
+            const includeTools = !filterToolsEnabled;
+
+            allMessages.forEach((msg, msgIndex) => {
+                if (msg.message && msg.message.content) {
+                    let content = '';
+                    const msgContent = msg.message.content;
+                    if (typeof msgContent === 'string') {
+                        content = msgContent;
+                    } else if (Array.isArray(msgContent)) {
+                        content = msgContent
+                            .filter(item => {
+                                if (item.type === 'text') return true;
+                                if (includeTools && (item.type === 'tool_result' || item.type === 'tool_use')) return true;
+                                return false;
+                            })
+                            .map(item => {
+                                if (item.type === 'text') return item.text || '';
+                                if (item.type === 'tool_result') return item.content || '';
+                                if (item.type === 'tool_use') return JSON.stringify(item.input || {});
+                                return '';
+                            })
+                            .join(' ');
                     }
-                    searchMatches[conv.id].count += 1;
+
+                    if (!content) return;
+
+                    const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                    const matches = content.match(regex);
+
+                    if (matches) {
+                        matches.forEach(() => {
+                            searchResults.push({ messageIndex: msgIndex });
+                        });
+                    }
                 }
             });
 
-            // Search through loaded messages for current conversation highlighting
-            if (currentConversation && allMessages.length > 0) {
-                searchResults = [];
-                allMessages.forEach((msg, msgIndex) => {
-                    if (msg.message && msg.message.content) {
-                        const content = typeof msg.message.content === 'string'
-                            ? msg.message.content
-                            : JSON.stringify(msg.message.content);
-
-                        const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-                        const matches = content.match(regex);
-
-                        if (matches) {
-                            matches.forEach(() => {
-                                searchResults.push({ messageIndex: msgIndex });
-                            });
-                        }
-                    }
-                });
-
-                if (searchResults.length > 0) {
-                    currentSearchIndex = 0;
-                    updateSearchInfo();
-                    renderMessages(allMessages, searchTerm);
-                    scrollToCurrentMatch();
-                } else {
-                    renderMessages(allMessages, searchTerm);
-                }
+            if (searchResults.length > 0) {
+                currentSearchIndex = 0;
+                updateSearchInfo();
+                renderMessages(allMessages, searchTerm);
+                scrollToCurrentMatch();
+            } else {
+                renderMessages(allMessages, searchTerm);
+                document.getElementById('searchInfo').style.display = 'none';
             }
-
-            // Filter conversations that have matches
-            const filteredConversations = allConversations.filter(conv => {
-                const match = searchMatches[conv.id];
-                if (!match) return false;
-                return typeof match === 'object' ? match.count > 0 : match > 0;
-            });
-
-            renderConversations(filteredConversations, searchMatches);
         }
 
         function navigateSearch(direction) {
@@ -1062,12 +1112,15 @@
         }
 
         function scrollToCurrentMatch() {
-            // Use requestAnimationFrame to ensure DOM has updated before scrolling
+            // Use double requestAnimationFrame to ensure DOM has fully updated and layout is complete
             requestAnimationFrame(() => {
-                const highlights = document.querySelectorAll('.highlight');
-                if (highlights[currentSearchIndex]) {
-                    highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                requestAnimationFrame(() => {
+                    // Only select visible highlights (exclude those in tool-filtered messages)
+                    const highlights = document.querySelectorAll('.message:not(.tool-filtered) .highlight');
+                    if (highlights[currentSearchIndex]) {
+                        highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                });
             });
         }
 
@@ -1166,7 +1219,7 @@
             filterToolsEnabled = !filterToolsEnabled;
             const btn = document.getElementById('filterBtn');
             btn.innerHTML = filterToolsEnabled ? '<span>🔽</span> Show Tools' : '<span>🔼</span> Hide Tools';
-            
+
             // Toggle visibility of tool messages
             document.querySelectorAll('[data-is-tool="true"]').forEach(elem => {
                 if (filterToolsEnabled) {
@@ -1175,6 +1228,60 @@
                     elem.classList.remove('tool-filtered');
                 }
             });
+
+            // Re-filter search results with new tool filter state (no re-fetch needed)
+            if (searchTerm) {
+                applySearchFilters();
+            }
+        }
+
+        async function toggleInternalThreads() {
+            const newState = !showInternalThreads;
+            const btn = document.getElementById('internalBtn');
+            btn.disabled = true; // Prevent double-clicks during fetch
+
+            // Optimistically update UI
+            showInternalThreads = newState;
+            document.getElementById('internalBtnText').textContent = newState ? 'Hide Internal' : 'Show Internal';
+
+            try {
+                const response = await fetch(`/api/conversations?include_internal=${newState}`);
+                if (!response.ok) throw new Error('Failed to load');
+                const data = await response.json();
+
+                // Only apply if state still matches (not stale response from rapid toggling)
+                if (showInternalThreads === newState) {
+                    allConversations = data;
+
+                    // Clear current conversation if it's no longer in the list
+                    if (currentConversation) {
+                        const stillExists = allConversations.some(c => c.id === currentConversation);
+                        if (!stillExists) {
+                            currentConversation = null;
+                            allMessages = [];
+                            searchResults = [];
+                            document.getElementById('messagesContainer').innerHTML =
+                                '<div class="empty-state"><h2>Select a conversation</h2><p>Choose a conversation from the sidebar to view its messages</p></div>';
+                            document.getElementById('filterBtn').style.display = 'none';
+                            document.getElementById('exportBtn').style.display = 'none';
+                        }
+                    }
+
+                    // Re-filter search or render conversations
+                    if (searchTerm) {
+                        applySearchFilters();
+                    } else {
+                        renderConversations(allConversations);
+                    }
+                }
+            } catch (error) {
+                console.error('Error toggling internal threads:', error);
+                // Revert state on error
+                showInternalThreads = !newState;
+                document.getElementById('internalBtnText').textContent = showInternalThreads ? 'Hide Internal' : 'Show Internal';
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         // Search functionality with debounce
@@ -1247,9 +1354,11 @@
             }
         });
 
-        // Auto-refresh every 30 seconds
+        // Auto-refresh every 30 seconds (skip when searching to preserve filtered results)
         setInterval(() => {
-            loadConversations();
+            if (!searchTerm) {
+                loadConversations();
+            }
         }, 30000);
 
         // Load conversations on page load

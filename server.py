@@ -37,24 +37,34 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"service": "ccpeek", "version": "1.0"}).encode())
         elif parsed_path.path == '/api/conversations':
-            self.handle_conversations()
+            query_params = parse_qs(parsed_path.query)
+            include_internal = query_params.get('include_internal', ['false'])[0].lower() == 'true'
+            self.handle_conversations(include_internal)
         elif parsed_path.path.startswith('/api/conversation/'):
             conversation_id = parsed_path.path.split('/')[-1]
-            self.handle_conversation(conversation_id)
+            query_params = parse_qs(parsed_path.query)
+            include_internal = query_params.get('include_internal', ['false'])[0].lower() == 'true'
+            self.handle_conversation(conversation_id, include_internal)
         elif parsed_path.path == '/api/search':
             query_params = parse_qs(parsed_path.query)
             search_term = query_params.get('q', [''])[0]
-            self.handle_search(unquote(search_term))
+            include_internal = query_params.get('include_internal', ['false'])[0].lower() == 'true'
+            self.handle_search(unquote(search_term), include_internal)
         else:
             super().do_GET()
 
-    def handle_conversations(self):
+    def handle_conversations(self, include_internal=False):
         """Get list of all conversations"""
         claude_dir = os.path.expanduser('~/.claude/projects')
         conversations = []
 
         if os.path.exists(claude_dir):
             for jsonl_file in glob.glob(os.path.join(claude_dir, '**/*.jsonl'), recursive=True):
+                # Skip subagent directories unless include_internal is true
+                if not include_internal:
+                    if '/subagents/' in jsonl_file or '\\subagents\\' in jsonl_file:
+                        continue
+
                 try:
                     # Get first message to extract metadata
                     with open(jsonl_file, 'r') as f:
@@ -82,6 +92,10 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                                             title = text[:100] + ('...' if len(text) > 100 else '')
                                     break
 
+                            # Skip internal threads unless requested
+                            if not include_internal and self._is_internal_thread(jsonl_file, title):
+                                continue
+
                             conversations.append({
                                 'id': os.path.basename(jsonl_file).replace('.jsonl', ''),
                                 'path': jsonl_file,
@@ -101,7 +115,7 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(conversations).encode())
 
-    def handle_conversation(self, conversation_id):
+    def handle_conversation(self, conversation_id, include_internal=False):
         """Get messages for a specific conversation"""
         claude_dir = os.path.expanduser('~/.claude/projects')
         jsonl_path = None
@@ -131,12 +145,22 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             return
 
         messages = []
+        first_user_title = None
         try:
             with open(jsonl_path, 'r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     try:
                         data = json.loads(line)
                         messages.append(data)
+                        # Capture first user message title for internal check
+                        if first_user_title is None and data.get('type') == 'user':
+                            content = data.get('message', {}).get('content', '')
+                            if isinstance(content, str):
+                                first_user_title = content[:100]
+                            elif isinstance(content, list) and content:
+                                first_item = content[0]
+                                if isinstance(first_item, dict) and first_item.get('type') == 'text':
+                                    first_user_title = first_item.get('text', '')[:100]
                     except json.JSONDecodeError:
                         continue
         except PermissionError:
@@ -160,35 +184,52 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             }).encode())
             return
 
+        # Check if this is an internal thread and block access if not requested
+        if not include_internal and self._is_internal_thread(jsonl_path, first_user_title):
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'error': 'Conversation not found',
+                'conversation_id': conversation_id
+            }).encode())
+            return
+
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
         self.wfile.write(json.dumps(messages).encode())
 
-    def _extract_text_content(self, content):
-        """Extract plain text from message content (string or array format)."""
+    def _extract_content_parts(self, content):
+        """Extract text and tool content separately from a message.
+
+        Returns: (text_content, tool_content) tuple of strings
+        """
+        text_parts = []
+        tool_parts = []
+
         if isinstance(content, str):
-            return content
+            return (content, '')
         elif isinstance(content, list):
-            texts = []
             for item in content:
                 if isinstance(item, str):
-                    texts.append(item)
+                    text_parts.append(item)
                 elif isinstance(item, dict):
-                    if item.get('type') == 'text':
-                        texts.append(str(item.get('text', '')))
-                    elif item.get('type') == 'tool_result':
+                    item_type = item.get('type')
+                    if item_type == 'text':
+                        text_parts.append(str(item.get('text', '')))
+                    elif item_type == 'tool_result':
                         result_content = item.get('content', '')
                         if isinstance(result_content, str):
-                            texts.append(result_content)
+                            tool_parts.append(result_content)
                         else:
-                            texts.append(json.dumps(result_content))
-                    elif item.get('type') == 'tool_use':
-                        texts.append(json.dumps(item.get('input', {})))
-            return ' '.join(texts)
+                            tool_parts.append(json.dumps(result_content))
+                    elif item_type == 'tool_use':
+                        tool_parts.append(json.dumps(item.get('input', {})))
+            return (' '.join(text_parts), ' '.join(tool_parts))
         elif isinstance(content, dict):
-            return json.dumps(content)
-        return str(content)
+            return ('', json.dumps(content))
+        return (str(content), '')
 
     def _create_snippet(self, text, match_pos, max_len=80):
         """Create a snippet around the match position."""
@@ -212,8 +253,28 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
 
         return snippet
 
-    def handle_search(self, search_term):
-        """Search across all conversations for a term"""
+    def _is_internal_thread(self, jsonl_path, first_user_title=None):
+        """Check if a conversation is an internal/subagent thread."""
+        # Subagent files are in subagents/ directories
+        if '/subagents/' in jsonl_path or '\\subagents\\' in jsonl_path:
+            return True
+        # Check title for internal command markers
+        if first_user_title:
+            if first_user_title.startswith('<local-command-caveat>'):
+                return True
+            if first_user_title.startswith('<command-name>'):
+                return True
+            if first_user_title.startswith('<local-command-stdout>'):
+                return True
+        return False
+
+    def handle_search(self, search_term, include_internal=False):
+        """Search across all conversations for a term.
+
+        Always searches all conversations (including internal) and returns
+        is_internal flag so client can filter without re-fetching.
+        Returns separate counts for text and tool content for visibility filtering.
+        """
         if not search_term or len(search_term) < 2:
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -228,32 +289,61 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         if os.path.exists(claude_dir):
             for jsonl_file in glob.glob(os.path.join(claude_dir, '**/*.jsonl'), recursive=True):
                 conv_id = os.path.basename(jsonl_file).replace('.jsonl', '')
-                match_count = 0
-                first_snippet = None
+                text_count = 0
+                tool_count = 0
+                text_snippet = None
+                tool_snippet = None
+                first_user_title = None
 
                 try:
                     with open(jsonl_file, 'r', encoding='utf-8', errors='ignore') as f:
                         for line in f:
                             try:
                                 data = json.loads(line)
+                                # Capture first user message for internal thread check
+                                if first_user_title is None and data.get('type') == 'user':
+                                    content = data.get('message', {}).get('content', '')
+                                    if isinstance(content, str):
+                                        first_user_title = content[:100]
+                                    elif isinstance(content, list) and content:
+                                        first_item = content[0]
+                                        if isinstance(first_item, dict) and first_item.get('type') == 'text':
+                                            first_user_title = first_item.get('text', '')[:100]
+
                                 if data.get('message') and data['message'].get('content'):
                                     content = data['message']['content']
-                                    text = self._extract_text_content(content)
+                                    text_part, tool_part = self._extract_content_parts(content)
 
-                                    found = pattern.findall(text)
-                                    if found:
-                                        match_count += len(found)
-                                        if first_snippet is None:
-                                            match_obj = pattern.search(text)
-                                            if match_obj:
-                                                first_snippet = self._create_snippet(text, match_obj.start())
+                                    # Count and snippet for text content
+                                    if text_part:
+                                        found = pattern.findall(text_part)
+                                        if found:
+                                            text_count += len(found)
+                                            if text_snippet is None:
+                                                match_obj = pattern.search(text_part)
+                                                if match_obj:
+                                                    text_snippet = self._create_snippet(text_part, match_obj.start())
+
+                                    # Count and snippet for tool content
+                                    if tool_part:
+                                        found = pattern.findall(tool_part)
+                                        if found:
+                                            tool_count += len(found)
+                                            if tool_snippet is None:
+                                                match_obj = pattern.search(tool_part)
+                                                if match_obj:
+                                                    tool_snippet = self._create_snippet(tool_part, match_obj.start())
+
                             except (json.JSONDecodeError, TypeError, AttributeError):
                                 continue
 
-                    if match_count > 0:
+                    if text_count > 0 or tool_count > 0:
+                        is_internal = self._is_internal_thread(jsonl_file, first_user_title)
                         matches[conv_id] = {
-                            'count': match_count,
-                            'snippet': first_snippet or ''
+                            'text_count': text_count,
+                            'tool_count': tool_count,
+                            'is_internal': is_internal,
+                            'snippet': text_snippet or tool_snippet or ''
                         }
 
                 except IOError as e:
@@ -378,7 +468,7 @@ def run_setup(port):
 
     Returns True if systemd service started successfully, False otherwise.
     """
-    print("── ccpeek setup ──\n")
+    print("-- ccpeek setup --\n")
 
     try:
         answer = input(
