@@ -48,8 +48,7 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         elif parsed_path.path == '/api/search':
             query_params = parse_qs(parsed_path.query)
             search_term = query_params.get('q', [''])[0]
-            include_internal = query_params.get('include_internal', ['false'])[0].lower() == 'true'
-            self.handle_search(unquote(search_term), include_internal)
+            self.handle_search(unquote(search_term))
         else:
             super().do_GET()
 
@@ -263,11 +262,10 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                 return True
         return False
 
-    def handle_search(self, search_term, include_internal=False):
+    def handle_search(self, search_term):
         """Search across all conversations for a term.
 
-        Always searches all conversations (including internal) and returns
-        is_internal flag so client can filter without re-fetching.
+        Returns all matches with is_internal flag so client can filter locally.
         Returns separate counts for text and tool content for visibility filtering.
         """
         if not search_term or len(search_term) < 2:
