@@ -31,6 +31,12 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             with open(os.path.join(os.path.dirname(__file__), 'index.html'), 'rb') as f:
                 self.wfile.write(f.read())
+        elif parsed_path.path == '/api/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"service": "ccpeek", "version": "1.0"}).encode())
         elif parsed_path.path == '/api/conversations':
             self.handle_conversations()
         elif parsed_path.path.startswith('/api/conversation/'):
@@ -189,6 +195,22 @@ def is_port_in_use(host, port):
     except (OSError, socket.timeout):
         return False
 
+def verify_ccpeek_instance(host, port):
+    """Verify that the service on host:port is actually ccpeek."""
+    import http.client
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=2)
+        conn.request('GET', '/api/health')
+        response = conn.getresponse()
+        if response.status == 200:
+            data = json.loads(response.read().decode())
+            return data.get('service') == 'ccpeek'
+        return False
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
 def _is_wsl():
     """Detect if running inside WSL."""
     try:
@@ -338,13 +360,17 @@ def main(argv=None):
     if args.setup or (not is_setup_done() and sys.stdin.isatty()):
         run_setup(args.port)
 
-    # If an instance is already listening, just open the browser and exit
+    # If an instance is already listening, verify it's ccpeek before redirecting
     if is_port_in_use(host, args.port):
-        display_host = resolve_display_host(host)
-        print(f"ccpeek is already running at http://{display_host}:{args.port}")
-        if args.open_browser and host in LOCAL_HOSTS:
-            open_browser(host if host != 'localhost' else '127.0.0.1', args.port)
-        sys.exit(0)
+        if verify_ccpeek_instance(host, args.port):
+            display_host = resolve_display_host(host)
+            print(f"ccpeek is already running at http://{display_host}:{args.port}")
+            if args.open_browser and host in LOCAL_HOSTS:
+                open_browser(host if host != 'localhost' else '127.0.0.1', args.port)
+            sys.exit(0)
+        else:
+            print(f"Port {args.port} in use by another service")
+            sys.exit(1)
 
     # --setup is config-only; don't start a server
     if args.setup:
