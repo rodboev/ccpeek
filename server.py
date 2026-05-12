@@ -34,7 +34,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         elif parsed_path.path == '/api/health':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"service": "ccpeek", "version": "1.0"}).encode())
         elif parsed_path.path == '/api/conversations':
@@ -99,7 +98,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(conversations).encode())
 
@@ -108,16 +106,23 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         claude_dir = os.path.expanduser('~/.claude/projects')
         jsonl_path = None
 
-        # Find the file
+        # Reject IDs with path separators
+        if '/' in conversation_id or '\\' in conversation_id:
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': 'Invalid conversation ID'}).encode())
+            return
+
+        # Find the file by exact basename match
         for jsonl_file in glob.glob(os.path.join(claude_dir, '**/*.jsonl'), recursive=True):
-            if conversation_id in jsonl_file:
+            if Path(jsonl_file).stem == conversation_id:
                 jsonl_path = jsonl_file
                 break
 
         if not jsonl_path or not os.path.exists(jsonl_path):
             self.send_response(404)
             self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({
                 'error': 'Conversation not found',
@@ -137,7 +142,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         except PermissionError:
             self.send_response(503)
             self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({
                 'error': 'File is locked (conversation may be active)',
@@ -148,7 +152,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         except IOError as e:
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({
                 'error': f'Error reading file: {str(e)}',
@@ -159,7 +162,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(messages).encode())
 
@@ -205,7 +207,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         if not search_term or len(search_term) < 2:
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({'matches': {}}).encode())
             return
@@ -251,7 +252,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps({'matches': matches}).encode())
 
@@ -393,7 +393,7 @@ def run_setup(port):
             "\n"
             "[Service]\n"
             "Type=simple\n"
-            f"ExecStart={bin_path} --no-browser --port {port}\n"
+            f'ExecStart="{bin_path}" --no-browser --port {port}\n'
             "Restart=on-failure\n"
             "RestartSec=5\n"
             "\n"
