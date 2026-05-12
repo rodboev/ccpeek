@@ -635,7 +635,7 @@
                 const snippet = matchData && typeof matchData === 'object' ? matchData.snippet : '';
 
                 return `
-                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''}"
+                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''} ${conv.id === currentConversation ? 'active' : ''}"
                          data-id="${conv.id}"
                          onclick="loadConversation('${conv.id}')">
                         <div class="conversation-title">${escapeHtml(conv.title)}</div>
@@ -922,22 +922,13 @@
             performSearch('');
         }
         
-        function getVisibleMatchCount(match) {
-            // Calculate visible match count based on current tool filter state
-            if (!match) return 0;
-            const textCount = match.text_count || 0;
-            const toolCount = match.tool_count || 0;
-            // When tools hidden, only count text matches; when shown, count both
-            return filterToolsEnabled ? textCount : (textCount + toolCount);
-        }
-
         function applySearchFilters() {
-            // Filter raw results based on current toggle states and render
+            // Filter search results based on internal thread toggle only
+            // (Hide Tools only affects message display, not which conversations appear)
             const container = document.getElementById('conversationsList');
 
-            // Build filtered matches object with visible counts
+            // Build filtered matches - only filter by internal thread visibility
             const filteredMatches = {};
-            let hasAnyMatches = false;
 
             for (const [convId, match] of Object.entries(rawSearchMatches)) {
                 // Skip internal threads if not showing them
@@ -945,13 +936,12 @@
                     continue;
                 }
 
-                const visibleCount = getVisibleMatchCount(match);
-                if (visibleCount > 0) {
+                const totalCount = (match.text_count || 0) + (match.tool_count || 0);
+                if (totalCount > 0) {
                     filteredMatches[convId] = {
-                        count: visibleCount,
+                        count: totalCount,
                         snippet: match.snippet || ''
                     };
-                    hasAnyMatches = true;
                 }
             }
 
@@ -963,19 +953,18 @@
                     } else {
                         filteredMatches[conv.id].count += 1;
                     }
-                    hasAnyMatches = true;
                 }
             });
 
-            // Filter conversations to those with visible matches
+            // Filter conversations to those with matches
             const filteredConversations = allConversations.filter(conv => {
                 const match = filteredMatches[conv.id];
                 return match && match.count > 0;
             });
 
             if (filteredConversations.length === 0 && Object.keys(rawSearchMatches).length > 0) {
-                // Has matches but none visible with current filters
-                container.innerHTML = '<div class="empty-state"><p>No matches with current filters</p><p style="font-size: 12px; color: #666;">Try adjusting Show Tools or Show Internal settings</p></div>';
+                // Has matches but in internal threads that are hidden
+                container.innerHTML = '<div class="empty-state"><p>No matches with current filters</p><p style="font-size: 12px; color: #666;">Try showing internal threads</p></div>';
             } else if (filteredConversations.length === 0) {
                 container.innerHTML = '<div class="empty-state"><p>No matches found</p></div>';
             } else {
@@ -1220,7 +1209,7 @@
             const btn = document.getElementById('filterBtn');
             btn.innerHTML = filterToolsEnabled ? '<span>🔽</span> Show Tools' : '<span>🔼</span> Hide Tools';
 
-            // Toggle visibility of tool messages
+            // Toggle visibility of tool messages (message-level only, doesn't affect search results)
             document.querySelectorAll('[data-is-tool="true"]').forEach(elem => {
                 if (filterToolsEnabled) {
                     elem.classList.add('tool-filtered');
@@ -1229,9 +1218,9 @@
                 }
             });
 
-            // Re-filter search results with new tool filter state (no re-fetch needed)
-            if (searchTerm) {
-                applySearchFilters();
+            // Update message highlighting if search is active
+            if (searchTerm && currentConversation && allMessages.length > 0) {
+                updateMessageSearchResults();
             }
         }
 

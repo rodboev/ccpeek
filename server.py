@@ -60,11 +60,6 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
 
         if os.path.exists(claude_dir):
             for jsonl_file in glob.glob(os.path.join(claude_dir, '**/*.jsonl'), recursive=True):
-                # Skip subagent directories unless include_internal is true
-                if not include_internal:
-                    if '/subagents/' in jsonl_file or '\\subagents\\' in jsonl_file:
-                        continue
-
                 try:
                     # Get first message to extract metadata
                     with open(jsonl_file, 'r') as f:
@@ -254,17 +249,17 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         return snippet
 
     def _is_internal_thread(self, jsonl_path, first_user_title=None):
-        """Check if a conversation is an internal/subagent thread."""
-        # Subagent files are in subagents/ directories
-        if '/subagents/' in jsonl_path or '\\subagents\\' in jsonl_path:
-            return True
-        # Check title for internal command markers
+        """Check if a conversation is a useless internal thread (local command output).
+
+        Note: Subagent threads are NOT considered internal - they contain useful context.
+        Only threads with local command markers are hidden by default.
+        """
         if first_user_title:
-            if first_user_title.startswith('<local-command-caveat>'):
+            # Any <local-command-*> variant
+            if first_user_title.startswith('<local-command-'):
                 return True
-            if first_user_title.startswith('<command-name>'):
-                return True
-            if first_user_title.startswith('<local-command-stdout>'):
+            # Slash command invocations
+            if first_user_title.startswith('<command-message>'):
                 return True
         return False
 
