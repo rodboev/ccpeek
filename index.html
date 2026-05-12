@@ -183,11 +183,17 @@
             font-size: 14px;
         }
         
-        .clear-search {
+        .search-controls {
             position: absolute;
-            right: 100px;
+            right: 10px;
             top: 50%;
             transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .clear-search {
             background: none;
             border: none;
             color: #666;
@@ -198,12 +204,12 @@
             transition: all 0.2s;
             display: none;
         }
-        
+
         .clear-search:hover {
             background: #2a2a2a;
             color: #fff;
         }
-        
+
         .clear-search.show {
             display: block;
         }
@@ -215,11 +221,7 @@
         }
 
         .search-info {
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
+            display: none;
             align-items: center;
             gap: 8px;
             font-size: 12px;
@@ -255,6 +257,7 @@
         .action-buttons {
             display: flex;
             gap: 8px;
+            flex-shrink: 0;
         }
 
         .action-btn {
@@ -551,12 +554,14 @@
             <div class="search-wrapper">
                 <div class="global-search">
                     <input type="text" id="globalSearch" placeholder="Search everything... (Press '/' to focus)">
-                    <button class="clear-search" id="clearSearch" onclick="clearSearch()">✕</button>
-                    <div class="search-info" id="searchInfo" style="display: none;">
-                        <span id="searchCount">0/0</span>
-                        <div class="search-nav">
-                            <button onclick="navigateSearch('prev')" id="prevBtn">↑</button>
-                            <button onclick="navigateSearch('next')" id="nextBtn">↓</button>
+                    <div class="search-controls">
+                        <button class="clear-search" id="clearSearch" onclick="clearSearch()">✕</button>
+                        <div class="search-info" id="searchInfo">
+                            <span id="searchCount">0/0</span>
+                            <div class="search-nav">
+                                <button onclick="navigateSearch('prev')" id="prevBtn">↑</button>
+                                <button onclick="navigateSearch('next')" id="nextBtn">↓</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1088,11 +1093,11 @@
         function updateSearchInfo() {
             const info = document.getElementById('searchInfo');
             const count = document.getElementById('searchCount');
-            
+
             if (searchResults.length > 0) {
                 info.style.display = 'flex';
                 count.textContent = `${currentSearchIndex + 1}/${searchResults.length}`;
-                
+
                 document.getElementById('prevBtn').disabled = searchResults.length <= 1;
                 document.getElementById('nextBtn').disabled = searchResults.length <= 1;
             } else {
