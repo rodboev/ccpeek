@@ -932,7 +932,6 @@
             // (Hide Tools only affects message display, not which conversations appear)
             const container = document.getElementById('conversationsList');
 
-            // Build filtered matches - only filter by internal thread visibility
             const filteredMatches = {};
 
             for (const [convId, match] of Object.entries(rawSearchMatches)) {
@@ -1214,7 +1213,7 @@
             const btn = document.getElementById('filterBtn');
             btn.innerHTML = filterToolsEnabled ? '<span>🔽</span> Show Tools' : '<span>🔼</span> Hide Tools';
 
-            // Toggle visibility of tool messages (message-level only, doesn't affect search results)
+            // Toggle visibility of tool messages
             document.querySelectorAll('[data-is-tool="true"]').forEach(elem => {
                 if (filterToolsEnabled) {
                     elem.classList.add('tool-filtered');
