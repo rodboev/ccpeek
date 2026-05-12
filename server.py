@@ -172,12 +172,22 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         elif isinstance(content, list):
             texts = []
             for item in content:
-                if isinstance(item, dict):
+                if isinstance(item, str):
+                    texts.append(item)
+                elif isinstance(item, dict):
                     if item.get('type') == 'text':
-                        texts.append(item.get('text', ''))
+                        texts.append(str(item.get('text', '')))
                     elif item.get('type') == 'tool_result':
-                        texts.append(item.get('content', ''))
+                        result_content = item.get('content', '')
+                        if isinstance(result_content, str):
+                            texts.append(result_content)
+                        else:
+                            texts.append(json.dumps(result_content))
+                    elif item.get('type') == 'tool_use':
+                        texts.append(json.dumps(item.get('input', {})))
             return ' '.join(texts)
+        elif isinstance(content, dict):
+            return json.dumps(content)
         return str(content)
 
     def _create_snippet(self, text, match_pos, max_len=80):
@@ -233,12 +243,11 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                                     found = pattern.findall(text)
                                     if found:
                                         match_count += len(found)
-                                        # Capture first snippet if not already set
                                         if first_snippet is None:
                                             match_obj = pattern.search(text)
                                             if match_obj:
                                                 first_snippet = self._create_snippet(text, match_obj.start())
-                            except json.JSONDecodeError:
+                            except (json.JSONDecodeError, TypeError, AttributeError):
                                 continue
 
                     if match_count > 0:
@@ -247,8 +256,8 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                             'snippet': first_snippet or ''
                         }
 
-                except Exception as e:
-                    print(f"Error searching {jsonl_file}: {e}")
+                except IOError as e:
+                    print(f"Error reading {jsonl_file}: {e}")
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
