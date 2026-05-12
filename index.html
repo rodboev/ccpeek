@@ -621,7 +621,7 @@
                 return;
             }
 
-            container.innerHTML = conversations.map((conv, index) => {
+            container.innerHTML = conversations.map(conv => {
                 const date = new Date(conv.timestamp || conv.modified * 1000);
                 const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
                 const matchData = searchMatches[conv.id];
@@ -632,7 +632,6 @@
                 return `
                     <div class="conversation-item ${hasMatches ? 'matches-search' : ''}"
                          data-id="${conv.id}"
-                         data-index="${index}"
                          onclick="loadConversation('${conv.id}')">
                         <div class="conversation-title">${escapeHtml(conv.title)}</div>
                         ${hasMatches && snippet ? `<div class="match-snippet">${escapeHtml(snippet)}</div>` : ''}
