@@ -281,7 +281,10 @@ def mark_setup_done():
     Path(SETUP_MARKER).touch()
 
 def run_setup(port):
-    """Interactive first-time setup wizard."""
+    """Interactive first-time setup wizard.
+
+    Returns True if systemd service started successfully, False otherwise.
+    """
     print("── ccpeek setup ──\n")
 
     try:
@@ -291,6 +294,11 @@ def run_setup(port):
     except (EOFError, KeyboardInterrupt):
         print()
         answer = 'n'
+
+    # Mark setup done immediately after user answers
+    mark_setup_done()
+
+    systemd_started = False
 
     if answer in ('y', 'yes'):
         bin_path = get_ccpeek_bin()
@@ -312,10 +320,17 @@ def run_setup(port):
         with open(UNIT_PATH, 'w') as f:
             f.write(unit)
 
-        subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
-        subprocess.run(['systemctl', '--user', 'enable', '--now', 'ccpeek'], check=True)
-        time.sleep(1)  # give the service a moment to bind
-        print(f"Registered and started ccpeek on port {port}")
+        try:
+            subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
+            subprocess.run(['systemctl', '--user', 'enable', '--now', 'ccpeek'], check=True)
+            time.sleep(1)  # give the service a moment to bind
+            print(f"Registered and started ccpeek on port {port}")
+            systemd_started = True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            # systemctl not available (WSL, no systemd) or command failed
+            if os.path.exists(UNIT_PATH):
+                os.remove(UNIT_PATH)
+            print("Could not register systemd service, starting foreground server")
     else:
         if os.path.exists(UNIT_PATH):
             subprocess.run(['systemctl', '--user', 'disable', '--now', 'ccpeek'],
@@ -326,8 +341,8 @@ def run_setup(port):
         else:
             print("Skipped systemd registration")
 
-    mark_setup_done()
     print("Re-run anytime with: ccpeek --setup\n")
+    return systemd_started
 
 
 def main(argv=None):
@@ -357,8 +372,19 @@ def main(argv=None):
     host = args.host
 
     # Setup wizard: on --setup or first interactive launch
+    systemd_started = False
     if args.setup or (not is_setup_done() and sys.stdin.isatty()):
-        run_setup(args.port)
+        systemd_started = run_setup(args.port)
+
+    # If systemd started successfully, check if it's running and exit
+    if systemd_started:
+        if is_port_in_use(host, args.port) and verify_ccpeek_instance(host, args.port):
+            display_host = resolve_display_host(host)
+            print(f"ccpeek is already running at http://{display_host}:{args.port}")
+            if args.open_browser and host in LOCAL_HOSTS:
+                open_browser(host if host != 'localhost' else '127.0.0.1', args.port)
+            sys.exit(0)
+        # systemd claimed to start but port not in use - fall through to foreground
 
     # If an instance is already listening, verify it's ccpeek before redirecting
     if is_port_in_use(host, args.port):
