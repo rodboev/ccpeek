@@ -589,6 +589,7 @@
         let searchTerm = '';
         let selectedConvIndex = 0;
         let filterToolsEnabled = true; // Start with tools hidden
+        let searchDebounceTimer = null;
 
         // Load conversations on startup
         async function loadConversations() {
@@ -920,7 +921,7 @@
         
         async function performSearch(term) {
             searchTerm = term.toLowerCase();
-            
+
             // Show/hide clear button
             const clearBtn = document.getElementById('clearSearch');
             if (searchTerm) {
@@ -928,7 +929,7 @@
             } else {
                 clearBtn.classList.remove('show');
             }
-            
+
             if (!searchTerm) {
                 renderConversations(allConversations);
                 if (currentConversation) {
@@ -938,22 +939,38 @@
                 return;
             }
 
-            // Search across all conversations and count matches
-            const searchMatches = {};
-            let totalMatches = 0;
-            
-            // First, search through loaded messages if we have a conversation open
+            // Search across all conversations via server-side API
+            let searchMatches = {};
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
+                const data = await response.json();
+                searchMatches = data.matches || {};
+            } catch (error) {
+                console.error('Error searching:', error);
+            }
+
+            // Also match conversation titles
+            allConversations.forEach(conv => {
+                if (conv.title.toLowerCase().includes(searchTerm)) {
+                    if (!searchMatches[conv.id]) {
+                        searchMatches[conv.id] = 0;
+                    }
+                    searchMatches[conv.id] += 1;
+                }
+            });
+
+            // Search through loaded messages for current conversation highlighting
             if (currentConversation && allMessages.length > 0) {
                 searchResults = [];
                 allMessages.forEach((msg, msgIndex) => {
                     if (msg.message && msg.message.content) {
-                        const content = typeof msg.message.content === 'string' 
-                            ? msg.message.content 
+                        const content = typeof msg.message.content === 'string'
+                            ? msg.message.content
                             : JSON.stringify(msg.message.content);
-                        
+
                         const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
                         const matches = content.match(regex);
-                        
+
                         if (matches) {
                             matches.forEach(() => {
                                 searchResults.push({ messageIndex: msgIndex });
@@ -961,30 +978,23 @@
                         }
                     }
                 });
-                
+
                 if (searchResults.length > 0) {
-                    searchMatches[currentConversation] = searchResults.length;
-                    totalMatches = searchResults.length;
                     currentSearchIndex = 0;
                     updateSearchInfo();
                     renderMessages(allMessages, searchTerm);
                     scrollToCurrentMatch();
+                } else {
+                    renderMessages(allMessages, searchTerm);
                 }
             }
 
-            // Search through all conversation titles
+            // Filter conversations that have matches
             const filteredConversations = allConversations.filter(conv => {
-                const titleMatch = conv.title.toLowerCase().includes(searchTerm);
-                if (titleMatch && !searchMatches[conv.id]) {
-                    searchMatches[conv.id] = 1; // At least 1 match in title
-                }
-                return titleMatch || searchMatches[conv.id] > 0;
+                return searchMatches[conv.id] > 0;
             });
 
-            // Only update sidebar if search changed, not when selecting a conversation
-            if (!currentConversation || searchTerm !== '') {
-                renderConversations(filteredConversations, searchMatches);
-            }
+            renderConversations(filteredConversations, searchMatches);
         }
 
         function navigateSearch(direction) {
@@ -1129,9 +1139,13 @@
             });
         }
 
-        // Search functionality
+        // Search functionality with debounce
         document.getElementById('globalSearch').addEventListener('input', (e) => {
-            performSearch(e.target.value);
+            const term = e.target.value;
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                performSearch(term);
+            }, 200);
         });
 
         // Keyboard shortcuts
