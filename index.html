@@ -964,6 +964,10 @@
                 return;
             }
 
+            // Show loading state
+            const container = document.getElementById('conversationsList');
+            container.innerHTML = '<div class="empty-state"><p>Searching...</p></div>';
+
             // Search across all conversations via server-side API
             let searchMatches = {};
             try {
@@ -972,6 +976,8 @@
                 searchMatches = data.matches || {};
             } catch (error) {
                 console.error('Error searching:', error);
+                container.innerHTML = '<div class="empty-state"><p>Search failed</p></div>';
+                return;
             }
 
             // Also match conversation titles
