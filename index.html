@@ -116,6 +116,15 @@
             font-weight: 600;
         }
 
+        .match-snippet {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         /* Main Content */
         .main-content {
             flex: 1;
@@ -606,7 +615,7 @@
 
         function renderConversations(conversations, searchMatches = {}) {
             const container = document.getElementById('conversationsList');
-            
+
             if (conversations.length === 0) {
                 container.innerHTML = '<div class="empty-state"><p>No conversations found</p></div>';
                 return;
@@ -615,15 +624,18 @@
             container.innerHTML = conversations.map((conv, index) => {
                 const date = new Date(conv.timestamp || conv.modified * 1000);
                 const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-                const matchCount = searchMatches[conv.id] || 0;
-                const hasMatches = matchCount > 0;
-                
+                const matchData = searchMatches[conv.id];
+                const hasMatches = matchData && (typeof matchData === 'object' ? matchData.count > 0 : matchData > 0);
+                const matchCount = matchData ? (typeof matchData === 'object' ? matchData.count : matchData) : 0;
+                const snippet = matchData && typeof matchData === 'object' ? matchData.snippet : '';
+
                 return `
-                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''}" 
-                         data-id="${conv.id}" 
+                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''}"
+                         data-id="${conv.id}"
                          data-index="${index}"
                          onclick="loadConversation('${conv.id}')">
                         <div class="conversation-title">${escapeHtml(conv.title)}</div>
+                        ${hasMatches && snippet ? `<div class="match-snippet">${escapeHtml(snippet)}</div>` : ''}
                         <div class="conversation-meta">
                             <span>${dateStr}</span>
                             ${hasMatches ? `<span class="match-count">${matchCount} matches</span>` : ''}
@@ -643,28 +655,41 @@
             currentConversation = conversationId;
             document.getElementById('exportBtn').style.display = 'block';
             document.getElementById('filterBtn').style.display = 'block';
-            
+
             // Show loading
             document.getElementById('messagesContainer').innerHTML = '<div class="loading">Loading messages...</div>';
 
             try {
                 const response = await fetch(`/api/conversation/${conversationId}`);
-                allMessages = await response.json();
+                const data = await response.json();
+
+                // Check for error response from server
+                if (data.error) {
+                    let errorMsg = data.error;
+                    if (data.conversation_id) {
+                        errorMsg += ` (${data.conversation_id})`;
+                    }
+                    document.getElementById('messagesContainer').innerHTML =
+                        `<div class="empty-state"><p>${escapeHtml(errorMsg)}</p></div>`;
+                    return;
+                }
+
+                allMessages = data;
                 renderMessages(allMessages);
-                
+
                 // Re-apply search highlighting in messages if there's an active search
                 if (searchTerm) {
                     // Only update message highlighting, not the sidebar
                     searchResults = [];
                     allMessages.forEach((msg, msgIndex) => {
                         if (msg.message && msg.message.content) {
-                            const content = typeof msg.message.content === 'string' 
-                                ? msg.message.content 
+                            const content = typeof msg.message.content === 'string'
+                                ? msg.message.content
                                 : JSON.stringify(msg.message.content);
-                            
+
                             const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
                             const matches = content.match(regex);
-                            
+
                             if (matches) {
                                 matches.forEach(() => {
                                     searchResults.push({ messageIndex: msgIndex });
@@ -672,7 +697,7 @@
                             }
                         }
                     });
-                    
+
                     if (searchResults.length > 0) {
                         currentSearchIndex = 0;
                         updateSearchInfo();
@@ -684,8 +709,8 @@
                 }
             } catch (error) {
                 console.error('Error loading conversation:', error);
-                document.getElementById('messagesContainer').innerHTML = 
-                    '<div class="empty-state"><p>Error loading conversation</p></div>';
+                document.getElementById('messagesContainer').innerHTML =
+                    `<div class="empty-state"><p>Error loading conversation: ${escapeHtml(conversationId)}</p><p style="font-size: 12px; color: #666; margin-top: 8px;">${escapeHtml(error.message || 'Network error')}</p></div>`;
             }
         }
 
@@ -953,9 +978,12 @@
             allConversations.forEach(conv => {
                 if (conv.title.toLowerCase().includes(searchTerm)) {
                     if (!searchMatches[conv.id]) {
-                        searchMatches[conv.id] = 0;
+                        searchMatches[conv.id] = { count: 0, snippet: '' };
+                    } else if (typeof searchMatches[conv.id] === 'number') {
+                        // Handle legacy format
+                        searchMatches[conv.id] = { count: searchMatches[conv.id], snippet: '' };
                     }
-                    searchMatches[conv.id] += 1;
+                    searchMatches[conv.id].count += 1;
                 }
             });
 
@@ -991,7 +1019,9 @@
 
             // Filter conversations that have matches
             const filteredConversations = allConversations.filter(conv => {
-                return searchMatches[conv.id] > 0;
+                const match = searchMatches[conv.id];
+                if (!match) return false;
+                return typeof match === 'object' ? match.count > 0 : match > 0;
             });
 
             renderConversations(filteredConversations, searchMatches);
@@ -1027,10 +1057,13 @@
         }
 
         function scrollToCurrentMatch() {
-            const highlights = document.querySelectorAll('.highlight');
-            if (highlights[currentSearchIndex]) {
-                highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+            // Use requestAnimationFrame to ensure DOM has updated before scrolling
+            requestAnimationFrame(() => {
+                const highlights = document.querySelectorAll('.highlight');
+                if (highlights[currentSearchIndex]) {
+                    highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
         }
 
         function copyMessage(btn, messageIndex) {

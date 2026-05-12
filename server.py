@@ -115,23 +115,90 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                 break
 
         if not jsonl_path or not os.path.exists(jsonl_path):
-            self.send_error(404, 'Conversation not found')
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'error': 'Conversation not found',
+                'conversation_id': conversation_id
+            }).encode())
             return
 
         messages = []
-        with open(jsonl_path, 'r') as f:
-            for line in f:
-                try:
-                    data = json.loads(line)
-                    messages.append(data)
-                except:
-                    continue
+        try:
+            with open(jsonl_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    try:
+                        data = json.loads(line)
+                        messages.append(data)
+                    except json.JSONDecodeError:
+                        continue
+        except PermissionError:
+            self.send_response(503)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'error': 'File is locked (conversation may be active)',
+                'conversation_id': conversation_id,
+                'path': jsonl_path
+            }).encode())
+            return
+        except IOError as e:
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'error': f'Error reading file: {str(e)}',
+                'conversation_id': conversation_id,
+                'path': jsonl_path
+            }).encode())
+            return
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(messages).encode())
+
+    def _extract_text_content(self, content):
+        """Extract plain text from message content (string or array format)."""
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            texts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get('type') == 'text':
+                        texts.append(item.get('text', ''))
+                    elif item.get('type') == 'tool_result':
+                        texts.append(item.get('content', ''))
+            return ' '.join(texts)
+        return str(content)
+
+    def _create_snippet(self, text, match_pos, max_len=80):
+        """Create a snippet around the match position."""
+        # Calculate context window
+        context_before = 30
+        context_after = max_len - context_before - 10
+
+        start = max(0, match_pos - context_before)
+        end = min(len(text), match_pos + context_after)
+
+        snippet = text[start:end]
+
+        # Clean up whitespace
+        snippet = ' '.join(snippet.split())
+
+        # Add ellipsis if truncated
+        if start > 0:
+            snippet = '...' + snippet
+        if end < len(text):
+            snippet = snippet + '...'
+
+        return snippet
 
     def handle_search(self, search_term):
         """Search across all conversations for a term"""
@@ -151,6 +218,7 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             for jsonl_file in glob.glob(os.path.join(claude_dir, '**/*.jsonl'), recursive=True):
                 conv_id = os.path.basename(jsonl_file).replace('.jsonl', '')
                 match_count = 0
+                first_snippet = None
 
                 try:
                     with open(jsonl_file, 'r', encoding='utf-8', errors='ignore') as f:
@@ -159,20 +227,24 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                                 data = json.loads(line)
                                 if data.get('message') and data['message'].get('content'):
                                     content = data['message']['content']
-                                    if isinstance(content, str):
-                                        text = content
-                                    elif isinstance(content, list):
-                                        text = json.dumps(content)
-                                    else:
-                                        text = str(content)
+                                    text = self._extract_text_content(content)
 
                                     found = pattern.findall(text)
-                                    match_count += len(found)
+                                    if found:
+                                        match_count += len(found)
+                                        # Capture first snippet if not already set
+                                        if first_snippet is None:
+                                            match_obj = pattern.search(text)
+                                            if match_obj:
+                                                first_snippet = self._create_snippet(text, match_obj.start())
                             except json.JSONDecodeError:
                                 continue
 
                     if match_count > 0:
-                        matches[conv_id] = match_count
+                        matches[conv_id] = {
+                            'count': match_count,
+                            'snippet': first_snippet or ''
+                        }
 
                 except Exception as e:
                     print(f"Error searching {jsonl_file}: {e}")
