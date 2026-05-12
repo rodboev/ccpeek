@@ -607,7 +607,7 @@
             document.getElementById('internalBtnText').textContent = showInternalThreads ? 'Hide Internal' : 'Show Internal';
             // Re-render conversations with current search state
             if (searchTerm) {
-                performSearch();
+                performSearch(searchTerm);
             } else {
                 renderConversations(allConversations);
             }
