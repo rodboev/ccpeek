@@ -553,6 +553,9 @@
                 </div>
             </div>
             <div class="action-buttons">
+                <button class="action-btn" onclick="toggleInternalThreads()" id="internalBtn" title="Show/hide internal threads (local commands)">
+                    <span>👁</span> <span id="internalBtnText">Show Internal</span>
+                </button>
                 <button class="action-btn" onclick="toggleFilter()" id="filterBtn" style="display: none;">
                     <span>🔽</span> Show Tools
                 </button>
@@ -589,6 +592,26 @@
         let searchTerm = '';
         let selectedConvIndex = 0;
         let filterToolsEnabled = true; // Start with tools hidden
+        let showInternalThreads = false; // Hide internal threads by default
+
+        // Check if a conversation is an internal-only thread (local commands with no real content)
+        function isInternalThread(conv) {
+            if (!conv.title) return false;
+            return conv.title.startsWith('<local-command-caveat>') ||
+                   conv.title.startsWith('<command-name>') ||
+                   conv.title.startsWith('<local-command-stdout>');
+        }
+
+        function toggleInternalThreads() {
+            showInternalThreads = !showInternalThreads;
+            document.getElementById('internalBtnText').textContent = showInternalThreads ? 'Hide Internal' : 'Show Internal';
+            // Re-render conversations with current search state
+            if (searchTerm) {
+                performSearch();
+            } else {
+                renderConversations(allConversations);
+            }
+        }
 
         // Load conversations on startup
         async function loadConversations() {
@@ -605,13 +628,18 @@
 
         function renderConversations(conversations, searchMatches = {}) {
             const container = document.getElementById('conversationsList');
-            
-            if (conversations.length === 0) {
+
+            // Filter out internal threads unless toggle is on
+            const visibleConversations = conversations.filter(conv =>
+                showInternalThreads || !isInternalThread(conv)
+            );
+
+            if (visibleConversations.length === 0) {
                 container.innerHTML = '<div class="empty-state"><p>No conversations found</p></div>';
                 return;
             }
 
-            container.innerHTML = conversations.map((conv, index) => {
+            container.innerHTML = visibleConversations.map((conv, index) => {
                 const date = new Date(conv.timestamp || conv.modified * 1000);
                 const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
                 const matchCount = searchMatches[conv.id] || 0;
@@ -959,8 +987,11 @@
                 }
             }
 
-            // Search through all conversation titles
+            // Search through all conversation titles (respecting internal threads toggle)
             const filteredConversations = allConversations.filter(conv => {
+                // Skip internal threads unless toggle is on
+                if (!showInternalThreads && isInternalThread(conv)) return false;
+
                 const titleMatch = conv.title.toLowerCase().includes(searchTerm);
                 if (titleMatch && !searchMatches[conv.id]) {
                     searchMatches[conv.id] = 1; // At least 1 match in title
