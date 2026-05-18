@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ccpeek - Claude Chat History Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
         
@@ -119,7 +120,7 @@
         .match-snippet {
             font-size: 12px;
             color: #888;
-            margin-top: 4px;
+            margin: 4px 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -442,8 +443,62 @@
 
         .message-text {
             color: #d4d4d4;
-            white-space: pre-wrap;
             word-wrap: break-word;
+        }
+
+        .message.user .message-text {
+            white-space: pre-wrap;
+        }
+
+        .message-text p {
+            margin-bottom: 1em;
+        }
+
+        .message-text p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-text a {
+            color: #c9a96e;
+            text-decoration: underline;
+        }
+
+        .message-text ul,
+        .message-text ol {
+            padding-left: 1.5em;
+            margin: 1em 0;
+        }
+
+        .message-text li {
+            margin: 0;
+        }
+
+        .message-text ul li ~ li,
+        .message-text ol li ~ li {
+            margin: 0.5em 0;
+        }
+
+        h3 {
+            margin: 0.5em 0;
+        }
+
+        hr {
+            margin: 1em 0;
+        }
+
+        .message-text table {
+            border-collapse: collapse;
+            margin: 1.5em 0;
+        }
+
+        .message-text th,
+        .message-text td {
+            border: 1px solid #444;
+            padding: 6px 10px;
+        }
+
+        .message-text th {
+            background: #1a1a1a;
         }
 
         .message-text code {
@@ -477,6 +532,7 @@
             font-style: italic;
             color: #9ca3af;
             position: relative;
+            white-space: pre-wrap;
         }
         
         .thinking-header {
@@ -518,6 +574,7 @@
             padding: 12px;
             max-height: 300px;
             overflow-y: auto;
+            white-space: pre-wrap;
         }
 
         .tool-use.collapsed .tool-use-content {
@@ -969,25 +1026,26 @@
             return div.innerHTML;
         }
 
+        const markedInstance = new marked.Marked({ breaks: true, gfm: true });
+        markedInstance.use({ renderer: {
+            code({ text }) {
+                return `<pre><code>${text.replace(/&amp;/g, '&')}</code></pre>`;
+            },
+            codespan({ text }) {
+                return `<code>${text.replace(/&amp;/g, '&')}</code>`;
+            },
+            heading({ tokens, depth }) {
+                const text = this.parser.parseInline(tokens);
+                const level = Math.min(depth + 1, 6);
+                return `<h${level}>${text}</h${level}>`;
+            },
+        }});
+
         function formatMarkdown(text) {
-            // Basic markdown formatting
-            let formatted = text;
-            
-            // Code blocks
-            formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-                return `<pre><code>${code}</code></pre>`;
-            });
-            
-            // Inline code
-            formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-            
-            // Bold
-            formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-            
-            // Italic
-            formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-            
-            return formatted;
+            let html = markedInstance.parse(text);
+            html = html.replace(/<br>\s*<code>(─+)<\/code><\/li>\s*<\/(ul|ol)>/g,
+                '</li></$2><p><code>$1</code></p>');
+            return html;
         }
 
         function toggleSidebar() {
