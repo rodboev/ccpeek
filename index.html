@@ -37,7 +37,7 @@
         }
 
         .sidebar-header {
-            padding: 20px;
+            height: 70px;
             border-bottom: 1px solid #2a2a2a;
             display: flex;
             align-items: center;
@@ -116,6 +116,15 @@
             font-weight: 600;
         }
 
+        .match-snippet {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         /* Main Content */
         .main-content {
             flex: 1;
@@ -125,11 +134,89 @@
         }
 
         .main-header {
-            padding: 16px 24px;
+            height: 70px;
+            padding: 0 24px;
             border-bottom: 1px solid #2a2a2a;
             display: flex;
             align-items: center;
             gap: 16px;
+        }
+
+        .resume-bar {
+            padding: 8px 24px;
+            border-bottom: 1px solid #2a2a2a;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .resume-bar.show {
+            display: flex;
+        }
+
+        .resume-bar-label {
+            color: #666;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .resume-bar-cmd {
+            max-width: 100%;
+            min-width: 0;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 6px 12px;
+            color: #e3e3e3;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .resume-bar-cmd:hover {
+            background: #2a2a2a;
+            border-color: #3a3a3a;
+        }
+
+        .resume-bar-cmd-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .resume-bar-copy {
+            flex-shrink: 0;
+            color: #666;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            height: 14px;
+        }
+
+        .resume-bar-cmd:hover .resume-bar-copy {
+            color: #999;
+        }
+
+        .resume-bar-cmd.copied {
+            border-color: #4a9eff;
+        }
+
+        .resume-bar-cmd.copied .resume-bar-copy {
+            color: #4a9eff;
+        }
+
+        .resume-bar-copy-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            color: #4a9eff;
+            white-space: nowrap;
         }
 
         .toggle-sidebar-main {
@@ -174,11 +261,17 @@
             font-size: 14px;
         }
         
-        .clear-search {
+        .search-controls {
             position: absolute;
-            right: 100px;
+            right: 10px;
             top: 50%;
             transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .clear-search {
             background: none;
             border: none;
             color: #666;
@@ -189,12 +282,12 @@
             transition: all 0.2s;
             display: none;
         }
-        
+
         .clear-search:hover {
             background: #2a2a2a;
             color: #fff;
         }
-        
+
         .clear-search.show {
             display: block;
         }
@@ -206,11 +299,7 @@
         }
 
         .search-info {
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
+            display: none;
             align-items: center;
             gap: 8px;
             font-size: 12px;
@@ -246,6 +335,7 @@
         .action-buttons {
             display: flex;
             gap: 8px;
+            flex-shrink: 0;
         }
 
         .action-btn {
@@ -542,23 +632,36 @@
             <div class="search-wrapper">
                 <div class="global-search">
                     <input type="text" id="globalSearch" placeholder="Search everything... (Press '/' to focus)">
-                    <button class="clear-search" id="clearSearch" onclick="clearSearch()">✕</button>
-                    <div class="search-info" id="searchInfo" style="display: none;">
-                        <span id="searchCount">0/0</span>
-                        <div class="search-nav">
-                            <button onclick="navigateSearch('prev')" id="prevBtn">↑</button>
-                            <button onclick="navigateSearch('next')" id="nextBtn">↓</button>
+                    <div class="search-controls">
+                        <button class="clear-search" id="clearSearch" onclick="clearSearch()">✕</button>
+                        <div class="search-info" id="searchInfo">
+                            <span id="searchCount">0/0</span>
+                            <div class="search-nav">
+                                <button onclick="navigateSearch('prev')" id="prevBtn">↑</button>
+                                <button onclick="navigateSearch('next')" id="nextBtn">↓</button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="action-buttons">
+                <button class="action-btn" onclick="toggleInternalThreads()" id="internalBtn">
+                    <span>👁</span> <span id="internalBtnText">Show Internal</span>
+                </button>
                 <button class="action-btn" onclick="toggleFilter()" id="filterBtn" style="display: none;">
                     <span>🔽</span> Show Tools
                 </button>
                 <button class="action-btn" onclick="exportConversation()" id="exportBtn" style="display: none;">
                     <span>📥</span> Export
                 </button>
+            </div>
+        </div>
+        <div class="resume-bar" id="resumeBar">
+            <span class="resume-bar-label" id="resumeBarLabel">To resume:</span>
+            <div class="resume-bar-cmd" id="resumeCmd" onclick="copyResumeCommand()">
+                <span class="resume-bar-cmd-text" id="resumeCmdText"></span>
+                <span class="resume-bar-copy" id="resumeCopyIcon">✂</span>
+                <span class="resume-bar-copy-label" id="resumeCopyLabel"></span>
             </div>
         </div>
         <div class="messages-container" id="messagesContainer">
@@ -589,40 +692,45 @@
         let searchTerm = '';
         let selectedConvIndex = 0;
         let filterToolsEnabled = true; // Start with tools hidden
+        let showInternalThreads = false; // Hide internal/subagent threads by default
+        let searchDebounceTimer = null;
+        let rawSearchMatches = {}; // Store unfiltered search results for client-side filtering
 
         // Load conversations on startup
         async function loadConversations() {
             try {
-                const response = await fetch('/api/conversations');
+                const response = await fetch(`/api/conversations?include_internal=${showInternalThreads}`);
                 allConversations = await response.json();
                 renderConversations(allConversations);
             } catch (error) {
                 console.error('Error loading conversations:', error);
-                document.getElementById('conversationsList').innerHTML = 
+                document.getElementById('conversationsList').innerHTML =
                     '<div class="empty-state"><p>Error loading conversations</p></div>';
             }
         }
 
         function renderConversations(conversations, searchMatches = {}) {
             const container = document.getElementById('conversationsList');
-            
+
             if (conversations.length === 0) {
                 container.innerHTML = '<div class="empty-state"><p>No conversations found</p></div>';
                 return;
             }
 
-            container.innerHTML = conversations.map((conv, index) => {
+            container.innerHTML = conversations.map(conv => {
                 const date = new Date(conv.timestamp || conv.modified * 1000);
                 const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-                const matchCount = searchMatches[conv.id] || 0;
-                const hasMatches = matchCount > 0;
-                
+                const matchData = searchMatches[conv.id];
+                const hasMatches = matchData && (typeof matchData === 'object' ? matchData.count > 0 : matchData > 0);
+                const matchCount = matchData ? (typeof matchData === 'object' ? matchData.count : matchData) : 0;
+                const snippet = matchData && typeof matchData === 'object' ? matchData.snippet : '';
+
                 return `
-                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''}" 
-                         data-id="${conv.id}" 
-                         data-index="${index}"
+                    <div class="conversation-item ${hasMatches ? 'matches-search' : ''} ${conv.id === currentConversation ? 'active' : ''}"
+                         data-id="${conv.id}"
                          onclick="loadConversation('${conv.id}')">
                         <div class="conversation-title">${escapeHtml(conv.title)}</div>
+                        ${hasMatches && snippet ? `<div class="match-snippet">${searchTerm ? escapeHtml(snippet).replace(new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<span class="highlight">$1</span>') : escapeHtml(snippet)}</div>` : ''}
                         <div class="conversation-meta">
                             <span>${dateStr}</span>
                             ${hasMatches ? `<span class="match-count">${matchCount} matches</span>` : ''}
@@ -642,49 +750,37 @@
             currentConversation = conversationId;
             document.getElementById('exportBtn').style.display = 'block';
             document.getElementById('filterBtn').style.display = 'block';
-            
+
             // Show loading
             document.getElementById('messagesContainer').innerHTML = '<div class="loading">Loading messages...</div>';
 
             try {
-                const response = await fetch(`/api/conversation/${conversationId}`);
-                allMessages = await response.json();
+                const response = await fetch(`/api/conversation/${conversationId}?include_internal=${showInternalThreads}`);
+                const data = await response.json();
+
+                // Check for error response from server
+                if (data.error) {
+                    let errorMsg = data.error;
+                    if (data.conversation_id) {
+                        errorMsg += ` (${data.conversation_id})`;
+                    }
+                    document.getElementById('messagesContainer').innerHTML =
+                        `<div class="empty-state"><p>${escapeHtml(errorMsg)}</p></div>`;
+                    return;
+                }
+
+                allMessages = data;
                 renderMessages(allMessages);
-                
+                updateResumeBar();
+
                 // Re-apply search highlighting in messages if there's an active search
                 if (searchTerm) {
-                    // Only update message highlighting, not the sidebar
-                    searchResults = [];
-                    allMessages.forEach((msg, msgIndex) => {
-                        if (msg.message && msg.message.content) {
-                            const content = typeof msg.message.content === 'string' 
-                                ? msg.message.content 
-                                : JSON.stringify(msg.message.content);
-                            
-                            const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-                            const matches = content.match(regex);
-                            
-                            if (matches) {
-                                matches.forEach(() => {
-                                    searchResults.push({ messageIndex: msgIndex });
-                                });
-                            }
-                        }
-                    });
-                    
-                    if (searchResults.length > 0) {
-                        currentSearchIndex = 0;
-                        updateSearchInfo();
-                        renderMessages(allMessages, searchTerm);
-                        scrollToCurrentMatch();
-                    } else {
-                        renderMessages(allMessages, searchTerm);
-                    }
+                    updateMessageSearchResults();
                 }
             } catch (error) {
                 console.error('Error loading conversation:', error);
-                document.getElementById('messagesContainer').innerHTML = 
-                    '<div class="empty-state"><p>Error loading conversation</p></div>';
+                document.getElementById('messagesContainer').innerHTML =
+                    `<div class="empty-state"><p>Error loading conversation: ${escapeHtml(conversationId)}</p><p style="font-size: 12px; color: #666; margin-top: 8px;">${escapeHtml(error.message || 'Network error')}</p></div>`;
             }
         }
 
@@ -912,15 +1008,127 @@
             document.getElementById('sidebar').classList.toggle('collapsed');
         }
 
+        function buildResumeCmd(convId, projectDir) {
+            const resumePart = `claude --resume ${convId}`;
+            if (projectDir) {
+                const isWindows = /^[A-Z]:\\/.test(projectDir);
+                const quote = projectDir.includes(' ') ? '"' : '';
+                const cdPart = `cd ${quote}${projectDir}${quote}`;
+                return isWindows
+                    ? `cmd /c ${cdPart} && ${resumePart}`
+                    : `${cdPart} && ${resumePart}`;
+            }
+            return resumePart;
+        }
+
+        function updateResumeBar() {
+            const bar = document.getElementById('resumeBar');
+            const label = document.getElementById('resumeBarLabel');
+            if (!currentConversation) {
+                bar.classList.remove('show');
+                return;
+            }
+            const conv = allConversations.find(c => c.id === currentConversation);
+            if (!conv) {
+                bar.classList.remove('show');
+                return;
+            }
+
+            let resumeId, projectDir;
+            if (conv.parent_id) {
+                label.textContent = 'Resume parent:';
+                resumeId = conv.parent_id;
+                projectDir = conv.project_dir;
+            } else {
+                label.textContent = 'To resume:';
+                resumeId = currentConversation;
+                projectDir = conv.project_dir;
+            }
+
+            document.getElementById('resumeCmdText').textContent = buildResumeCmd(resumeId, projectDir);
+            bar.classList.add('show');
+        }
+
+        function copyResumeCommand() {
+            const text = document.getElementById('resumeCmdText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const cmd = document.getElementById('resumeCmd');
+                const icon = document.getElementById('resumeCopyIcon');
+                const label = document.getElementById('resumeCopyLabel');
+                cmd.classList.add('copied');
+                icon.style.display = 'none';
+                label.textContent = 'Copied!';
+                setTimeout(() => {
+                    cmd.classList.remove('copied');
+                    icon.style.display = '';
+                    label.textContent = '';
+                }, 2000);
+            });
+        }
+
         function clearSearch() {
             document.getElementById('globalSearch').value = '';
             document.getElementById('clearSearch').classList.remove('show');
             performSearch('');
         }
         
+        function applySearchFilters() {
+            // Filter search results based on internal thread toggle only
+            // (Hide Tools only affects message display, not which conversations appear)
+            const container = document.getElementById('conversationsList');
+
+            const filteredMatches = {};
+
+            for (const [convId, match] of Object.entries(rawSearchMatches)) {
+                // Skip internal threads if not showing them
+                if (match.is_internal && !showInternalThreads) {
+                    continue;
+                }
+
+                const totalCount = (match.text_count || 0) + (match.tool_count || 0);
+                if (totalCount > 0) {
+                    filteredMatches[convId] = {
+                        count: totalCount,
+                        snippet: match.snippet || ''
+                    };
+                }
+            }
+
+            // Also check title matches from loaded conversations
+            allConversations.forEach(conv => {
+                if (conv.title.toLowerCase().includes(searchTerm)) {
+                    if (!filteredMatches[conv.id]) {
+                        filteredMatches[conv.id] = { count: 1, snippet: '' };
+                    } else {
+                        filteredMatches[conv.id].count += 1;
+                    }
+                }
+            });
+
+            // Filter conversations to those with matches
+            const filteredConversations = allConversations.filter(conv => {
+                const match = filteredMatches[conv.id];
+                return match && match.count > 0;
+            });
+
+            if (filteredConversations.length === 0 && Object.keys(rawSearchMatches).length > 0) {
+                // Has matches but in internal threads that are hidden
+                container.innerHTML = '<div class="empty-state"><p>No matches with current filters</p><p style="font-size: 12px; color: #666;">Try showing internal threads</p></div>';
+            } else if (filteredConversations.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No matches found</p></div>';
+            } else {
+                renderConversations(filteredConversations, filteredMatches);
+            }
+
+            // Update message highlighting if a conversation is loaded
+            if (currentConversation && allMessages.length > 0) {
+                updateMessageSearchResults();
+            }
+        }
+
         async function performSearch(term) {
             searchTerm = term.toLowerCase();
-            
+
             // Show/hide clear button
             const clearBtn = document.getElementById('clearSearch');
             if (searchTerm) {
@@ -928,8 +1136,9 @@
             } else {
                 clearBtn.classList.remove('show');
             }
-            
+
             if (!searchTerm) {
+                rawSearchMatches = {};
                 renderConversations(allConversations);
                 if (currentConversation) {
                     renderMessages(allMessages);
@@ -938,52 +1147,76 @@
                 return;
             }
 
-            // Search across all conversations and count matches
-            const searchMatches = {};
-            let totalMatches = 0;
-            
-            // First, search through loaded messages if we have a conversation open
-            if (currentConversation && allMessages.length > 0) {
-                searchResults = [];
-                allMessages.forEach((msg, msgIndex) => {
-                    if (msg.message && msg.message.content) {
-                        const content = typeof msg.message.content === 'string' 
-                            ? msg.message.content 
-                            : JSON.stringify(msg.message.content);
-                        
-                        const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-                        const matches = content.match(regex);
-                        
-                        if (matches) {
-                            matches.forEach(() => {
-                                searchResults.push({ messageIndex: msgIndex });
-                            });
-                        }
-                    }
-                });
-                
-                if (searchResults.length > 0) {
-                    searchMatches[currentConversation] = searchResults.length;
-                    totalMatches = searchResults.length;
-                    currentSearchIndex = 0;
-                    updateSearchInfo();
-                    renderMessages(allMessages, searchTerm);
-                    scrollToCurrentMatch();
-                }
+            // Show loading state
+            const container = document.getElementById('conversationsList');
+            container.innerHTML = '<div class="empty-state"><p>Searching...</p></div>';
+
+            // Search across all conversations via server-side API (always includes internal)
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
+                const data = await response.json();
+                rawSearchMatches = data.matches || {};
+            } catch (error) {
+                console.error('Error searching:', error);
+                container.innerHTML = '<div class="empty-state"><p>Search failed</p></div>';
+                return;
             }
 
-            // Search through all conversation titles
-            const filteredConversations = allConversations.filter(conv => {
-                const titleMatch = conv.title.toLowerCase().includes(searchTerm);
-                if (titleMatch && !searchMatches[conv.id]) {
-                    searchMatches[conv.id] = 1; // At least 1 match in title
+            // Apply filters and render
+            applySearchFilters();
+        }
+
+        function updateMessageSearchResults() {
+            // Update search results for currently loaded messages
+            // Only search visible content (exclude tool content when tools are hidden)
+            if (!currentConversation || allMessages.length === 0) return;
+
+            searchResults = [];
+            const includeTools = !filterToolsEnabled;
+
+            allMessages.forEach((msg, msgIndex) => {
+                if (msg.message && msg.message.content) {
+                    let content = '';
+                    const msgContent = msg.message.content;
+                    if (typeof msgContent === 'string') {
+                        content = msgContent;
+                    } else if (Array.isArray(msgContent)) {
+                        content = msgContent
+                            .filter(item => {
+                                if (item.type === 'text') return true;
+                                if (includeTools && (item.type === 'tool_result' || item.type === 'tool_use')) return true;
+                                return false;
+                            })
+                            .map(item => {
+                                if (item.type === 'text') return item.text || '';
+                                if (item.type === 'tool_result') return item.content || '';
+                                if (item.type === 'tool_use') return JSON.stringify(item.input || {});
+                                return '';
+                            })
+                            .join(' ');
+                    }
+
+                    if (!content) return;
+
+                    const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                    const matches = content.match(regex);
+
+                    if (matches) {
+                        matches.forEach(() => {
+                            searchResults.push({ messageIndex: msgIndex });
+                        });
+                    }
                 }
-                return titleMatch || searchMatches[conv.id] > 0;
             });
 
-            // Only update sidebar if search changed, not when selecting a conversation
-            if (!currentConversation || searchTerm !== '') {
-                renderConversations(filteredConversations, searchMatches);
+            if (searchResults.length > 0) {
+                currentSearchIndex = 0;
+                updateSearchInfo();
+                renderMessages(allMessages, searchTerm);
+                scrollToCurrentMatch();
+            } else {
+                renderMessages(allMessages, searchTerm);
+                document.getElementById('searchInfo').style.display = 'none';
             }
         }
 
@@ -1004,11 +1237,11 @@
         function updateSearchInfo() {
             const info = document.getElementById('searchInfo');
             const count = document.getElementById('searchCount');
-            
+
             if (searchResults.length > 0) {
                 info.style.display = 'flex';
                 count.textContent = `${currentSearchIndex + 1}/${searchResults.length}`;
-                
+
                 document.getElementById('prevBtn').disabled = searchResults.length <= 1;
                 document.getElementById('nextBtn').disabled = searchResults.length <= 1;
             } else {
@@ -1017,10 +1250,16 @@
         }
 
         function scrollToCurrentMatch() {
-            const highlights = document.querySelectorAll('.highlight');
-            if (highlights[currentSearchIndex]) {
-                highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+            // Use double requestAnimationFrame to ensure DOM has fully updated and layout is complete
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    // Only select visible highlights (exclude those in tool-filtered messages)
+                    const highlights = document.querySelectorAll('.message:not(.tool-filtered) .highlight');
+                    if (highlights[currentSearchIndex]) {
+                        highlights[currentSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                });
+            });
         }
 
         function copyMessage(btn, messageIndex) {
@@ -1118,7 +1357,7 @@
             filterToolsEnabled = !filterToolsEnabled;
             const btn = document.getElementById('filterBtn');
             btn.innerHTML = filterToolsEnabled ? '<span>🔽</span> Show Tools' : '<span>🔼</span> Hide Tools';
-            
+
             // Toggle visibility of tool messages
             document.querySelectorAll('[data-is-tool="true"]').forEach(elem => {
                 if (filterToolsEnabled) {
@@ -1127,11 +1366,70 @@
                     elem.classList.remove('tool-filtered');
                 }
             });
+
+            // Update message highlighting if search is active
+            if (searchTerm && currentConversation && allMessages.length > 0) {
+                updateMessageSearchResults();
+            }
         }
 
-        // Search functionality
+        async function toggleInternalThreads() {
+            const newState = !showInternalThreads;
+            const btn = document.getElementById('internalBtn');
+            btn.disabled = true; // Prevent double-clicks during fetch
+
+            // Optimistically update UI
+            showInternalThreads = newState;
+            document.getElementById('internalBtnText').textContent = newState ? 'Hide Internal' : 'Show Internal';
+
+            try {
+                const response = await fetch(`/api/conversations?include_internal=${newState}`);
+                if (!response.ok) throw new Error('Failed to load');
+                const data = await response.json();
+
+                // Only apply if state still matches (not stale response from rapid toggling)
+                if (showInternalThreads === newState) {
+                    allConversations = data;
+
+                    // Clear current conversation if it's no longer in the list
+                    if (currentConversation) {
+                        const stillExists = allConversations.some(c => c.id === currentConversation);
+                        if (!stillExists) {
+                            currentConversation = null;
+                            allMessages = [];
+                            searchResults = [];
+                            document.getElementById('messagesContainer').innerHTML =
+                                '<div class="empty-state"><h2>Select a conversation</h2><p>Choose a conversation from the sidebar to view its messages</p></div>';
+                            document.getElementById('filterBtn').style.display = 'none';
+                            document.getElementById('exportBtn').style.display = 'none';
+                            document.getElementById('resumeBar').classList.remove('show');
+                        }
+                    }
+
+                    // Re-filter search or render conversations
+                    if (searchTerm) {
+                        applySearchFilters();
+                    } else {
+                        renderConversations(allConversations);
+                    }
+                }
+            } catch (error) {
+                console.error('Error toggling internal threads:', error);
+                // Revert state on error
+                showInternalThreads = !newState;
+                document.getElementById('internalBtnText').textContent = showInternalThreads ? 'Hide Internal' : 'Show Internal';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Search functionality with debounce
         document.getElementById('globalSearch').addEventListener('input', (e) => {
-            performSearch(e.target.value);
+            const term = e.target.value;
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                performSearch(term);
+            }, 200);
         });
 
         // Keyboard shortcuts
@@ -1195,9 +1493,11 @@
             }
         });
 
-        // Auto-refresh every 30 seconds
+        // Auto-refresh every 30 seconds (skip when searching to preserve filtered results)
         setInterval(() => {
-            loadConversations();
+            if (!searchTerm) {
+                loadConversations();
+            }
         }, 30000);
 
         // Load conversations on page load
