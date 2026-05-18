@@ -363,6 +363,7 @@
             overflow-y: auto;
             padding: 24px;
             position: relative;
+            font-size: 11pt;
         }
 
         .message {
@@ -852,13 +853,7 @@
                         content = message.content.map(item => {
                             if (item.type === 'tool_result') {
                                 const toolContent = escapeHtml(item.content || '');
-                                return `<div class="tool-use">
-                                    <div class="tool-use-header">
-                                        <span>Tool Result${item.tool_use_id ? ` (${item.tool_use_id.slice(-8)})` : ''}</span>
-                                        <span class="tool-use-toggle">▼</span>
-                                    </div>
-                                    <div class="tool-use-content">${highlightTerm ? highlightText(toolContent, highlightTerm) : toolContent}</div>
-                                </div>`;
+                                return `<div class="tool-use"><div class="tool-use-header"><span>Tool Result${item.tool_use_id ? ` (${item.tool_use_id.slice(-8)})` : ''}</span><span class="tool-use-toggle">▼</span></div><div class="tool-use-content">${highlightTerm ? highlightText(toolContent, highlightTerm) : toolContent}</div></div>`;
                             }
                             return '';
                         }).join('');
@@ -932,23 +927,14 @@
                 } else if (Array.isArray(message.content)) {
                     content = message.content.map(item => {
                         if (item.type === 'text') {
-                            let text = formatMarkdown(item.text || '');
+                            let text = formatMarkdown(escapeHtml(item.text || ''));
                             return highlightTerm ? highlightText(text, highlightTerm) : text;
                         } else if (item.type === 'thinking') {
                             const thinkingText = escapeHtml(item.thinking || '');
-                            return `<div class="thinking-block">
-                                <div class="thinking-header">💭 Thinking</div>
-                                <div>${highlightTerm ? highlightText(thinkingText, highlightTerm) : thinkingText}</div>
-                            </div>`;
+                            return `<div class="thinking-block"><div class="thinking-header">💭 Thinking</div><div>${highlightTerm ? highlightText(thinkingText, highlightTerm) : thinkingText}</div></div>`;
                         } else if (item.type === 'tool_use') {
                             const toolContent = escapeHtml(JSON.stringify(item.input, null, 2));
-                            return `<div class="tool-use collapsed">
-                                <div class="tool-use-header">
-                                    <span>${escapeHtml(item.name || 'Tool Use')}</span>
-                                    <span class="tool-use-toggle">▶</span>
-                                </div>
-                                <div class="tool-use-content">${highlightTerm ? highlightText(toolContent, highlightTerm) : toolContent}</div>
-                            </div>`;
+                            return `<div class="tool-use collapsed"><div class="tool-use-header"><span>${escapeHtml(item.name || 'Tool Use')}</span><span class="tool-use-toggle">▶</span></div><div class="tool-use-content">${highlightTerm ? highlightText(toolContent, highlightTerm) : toolContent}</div></div>`;
                         }
                         return '';
                     }).join('');
