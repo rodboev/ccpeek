@@ -37,7 +37,7 @@
         }
 
         .sidebar-header {
-            padding: 20px;
+            height: 70px;
             border-bottom: 1px solid #2a2a2a;
             display: flex;
             align-items: center;
@@ -134,11 +134,89 @@
         }
 
         .main-header {
-            padding: 16px 24px;
+            height: 70px;
+            padding: 0 24px;
             border-bottom: 1px solid #2a2a2a;
             display: flex;
             align-items: center;
             gap: 16px;
+        }
+
+        .resume-bar {
+            padding: 8px 24px;
+            border-bottom: 1px solid #2a2a2a;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .resume-bar.show {
+            display: flex;
+        }
+
+        .resume-bar-label {
+            color: #666;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .resume-bar-cmd {
+            max-width: 100%;
+            min-width: 0;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 6px 12px;
+            color: #e3e3e3;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .resume-bar-cmd:hover {
+            background: #2a2a2a;
+            border-color: #3a3a3a;
+        }
+
+        .resume-bar-cmd-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .resume-bar-copy {
+            flex-shrink: 0;
+            color: #666;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            height: 14px;
+        }
+
+        .resume-bar-cmd:hover .resume-bar-copy {
+            color: #999;
+        }
+
+        .resume-bar-cmd.copied {
+            border-color: #4a9eff;
+        }
+
+        .resume-bar-cmd.copied .resume-bar-copy {
+            color: #4a9eff;
+        }
+
+        .resume-bar-copy-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            color: #4a9eff;
+            white-space: nowrap;
         }
 
         .toggle-sidebar-main {
@@ -578,6 +656,14 @@
                 </button>
             </div>
         </div>
+        <div class="resume-bar" id="resumeBar">
+            <span class="resume-bar-label" id="resumeBarLabel">To resume:</span>
+            <div class="resume-bar-cmd" id="resumeCmd" onclick="copyResumeCommand()">
+                <span class="resume-bar-cmd-text" id="resumeCmdText"></span>
+                <span class="resume-bar-copy" id="resumeCopyIcon">✂</span>
+                <span class="resume-bar-copy-label" id="resumeCopyLabel"></span>
+            </div>
+        </div>
         <div class="messages-container" id="messagesContainer">
             <div class="empty-state">
                 <h2>Select a conversation</h2>
@@ -685,6 +771,7 @@
 
                 allMessages = data;
                 renderMessages(allMessages);
+                updateResumeBar();
 
                 // Re-apply search highlighting in messages if there's an active search
                 if (searchTerm) {
@@ -919,6 +1006,64 @@
 
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('collapsed');
+        }
+
+        function buildResumeCmd(convId, projectDir) {
+            const resumePart = `claude --resume ${convId}`;
+            if (projectDir) {
+                const isWindows = /^[A-Z]:\\/.test(projectDir);
+                const quote = projectDir.includes(' ') ? '"' : '';
+                const cdPart = `cd ${quote}${projectDir}${quote}`;
+                return isWindows
+                    ? `cmd /c ${cdPart} && ${resumePart}`
+                    : `${cdPart} && ${resumePart}`;
+            }
+            return resumePart;
+        }
+
+        function updateResumeBar() {
+            const bar = document.getElementById('resumeBar');
+            const label = document.getElementById('resumeBarLabel');
+            if (!currentConversation) {
+                bar.classList.remove('show');
+                return;
+            }
+            const conv = allConversations.find(c => c.id === currentConversation);
+            if (!conv) {
+                bar.classList.remove('show');
+                return;
+            }
+
+            let resumeId, projectDir;
+            if (conv.parent_id) {
+                label.textContent = 'Resume parent:';
+                resumeId = conv.parent_id;
+                projectDir = conv.project_dir;
+            } else {
+                label.textContent = 'To resume:';
+                resumeId = currentConversation;
+                projectDir = conv.project_dir;
+            }
+
+            document.getElementById('resumeCmdText').textContent = buildResumeCmd(resumeId, projectDir);
+            bar.classList.add('show');
+        }
+
+        function copyResumeCommand() {
+            const text = document.getElementById('resumeCmdText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const cmd = document.getElementById('resumeCmd');
+                const icon = document.getElementById('resumeCopyIcon');
+                const label = document.getElementById('resumeCopyLabel');
+                cmd.classList.add('copied');
+                icon.style.display = 'none';
+                label.textContent = 'Copied!';
+                setTimeout(() => {
+                    cmd.classList.remove('copied');
+                    icon.style.display = '';
+                    label.textContent = '';
+                }, 2000);
+            });
         }
 
         function clearSearch() {
@@ -1257,6 +1402,7 @@
                                 '<div class="empty-state"><h2>Select a conversation</h2><p>Choose a conversation from the sidebar to view its messages</p></div>';
                             document.getElementById('filterBtn').style.display = 'none';
                             document.getElementById('exportBtn').style.display = 'none';
+                            document.getElementById('resumeBar').classList.remove('show');
                         }
                     }
 

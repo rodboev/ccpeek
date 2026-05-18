@@ -52,16 +52,56 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    @staticmethod
+    def _decode_project_dir(encoded):
+        """Decode a Claude project directory name back to the original path.
+
+        Claude encodes paths as: drive--segment-segment (on Windows)
+        or segment-segment (on Unix), replacing both path separators
+        and certain characters with hyphens.  The encoding is lossy,
+        so we verify the result exists on disk.
+        """
+        sep = os.sep
+        # Split on '--' first (drive letter boundary on Windows)
+        major = encoded.split('--')
+        if len(major) == 2 and len(major[0]) == 1 and major[0].isalpha():
+            prefix = major[0].upper() + ':' + sep
+            rest = major[1]
+        else:
+            prefix = sep
+            rest = encoded
+
+        segments = rest.split('-')
+        # Try progressively merging adjacent segments with '-' or '_'
+        # to find a path that actually exists on disk
+        def resolve(segs, idx, current):
+            if idx == len(segs):
+                full = prefix + current
+                if os.path.isdir(full):
+                    yield full
+                return
+            part = segs[idx]
+            for joiner in (sep, '-', '_'):
+                next_path = (current + joiner + part) if current else part
+                yield from resolve(segs, idx + 1, next_path)
+
+        for candidate in resolve(segments, 0, ''):
+            return candidate
+        # Fallback: simple dash-to-sep replacement
+        return prefix + rest.replace('-', sep)
+
     def handle_conversations(self, include_internal=False):
         """Get list of all conversations"""
         claude_dir = os.path.expanduser('~/.claude/projects')
         conversations = []
 
         if os.path.exists(claude_dir):
+            # Cache decoded project dirs per encoded dirname
+            project_dir_cache = {}
             for jsonl_file in glob.glob(os.path.join(claude_dir, '**/*.jsonl'), recursive=True):
                 try:
                     # Get first message to extract metadata
-                    with open(jsonl_file, 'r') as f:
+                    with open(jsonl_file, 'r', encoding='utf-8', errors='replace') as f:
                         first_line = f.readline()
                         if first_line:
                             data = json.loads(first_line)
@@ -90,9 +130,28 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                             if not include_internal and self._is_internal_thread(jsonl_file, title):
                                 continue
 
+                            # Resolve project directory: walk up from the jsonl
+                            # file to find the first child of the projects/ root.
+                            # Subagents nest as <project>/<uuid>/subagents/agent-*.jsonl
+                            rel = os.path.relpath(jsonl_file, claude_dir)
+                            encoded = rel.split(os.sep)[0]
+                            if encoded not in project_dir_cache:
+                                project_dir_cache[encoded] = self._decode_project_dir(encoded)
+                            project_dir = project_dir_cache[encoded]
+
+                            # Detect parent conversation for subagent threads
+                            rel_parts = rel.split(os.sep)
+                            parent_id = None
+                            if 'subagents' in rel_parts:
+                                si = rel_parts.index('subagents')
+                                if si > 1:
+                                    parent_id = rel_parts[si - 1]
+
                             conversations.append({
                                 'id': os.path.basename(jsonl_file).replace('.jsonl', ''),
                                 'path': jsonl_file,
+                                'project_dir': project_dir,
+                                'parent_id': parent_id,
                                 'title': title,
                                 'timestamp': data.get('timestamp', ''),
                                 'modified': stats.st_mtime,
@@ -141,7 +200,7 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         messages = []
         first_user_title = None
         try:
-            with open(jsonl_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(jsonl_path, 'r', encoding='utf-8', errors='replace') as f:
                 for line in f:
                     try:
                         data = json.loads(line)
@@ -289,7 +348,7 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                 first_user_title = None
 
                 try:
-                    with open(jsonl_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(jsonl_file, 'r', encoding='utf-8', errors='replace') as f:
                         for line in f:
                             try:
                                 data = json.loads(line)
