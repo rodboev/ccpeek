@@ -16,7 +16,7 @@ import socket
 import sys
 
 DEFAULT_PORT = 8888
-DEFAULT_HOST = '127.0.0.1'
+DEFAULT_HOST = '0.0.0.0'
 LOCAL_HOSTS = {'127.0.0.1', 'localhost', '::1'}
 SETUP_MARKER = os.path.expanduser('~/.config/ccpeek/.setup-done')
 UNIT_PATH = os.path.expanduser('~/.config/systemd/user/ccpeek.service')
@@ -548,6 +548,9 @@ def mark_setup_done():
     os.makedirs(os.path.dirname(SETUP_MARKER), exist_ok=True)
     Path(SETUP_MARKER).touch()
 
+FIREWALL_RULE_NAME = 'CCPeek'
+
+
 def run_setup(port):
     """Interactive first-time setup wizard.
 
@@ -569,22 +572,85 @@ def run_setup(port):
 
     if answer in ('n', 'no'):
         print(f"Skipped {mechanism} registration")
-        print("Use --setup to register, --remove to unregister\n")
-        return False
-
-    if sys.platform == 'win32':
+        started = False
+    elif sys.platform == 'win32':
         started = _setup_windows_task(port, True)
     else:
         started = _setup_systemd_service(port, True)
 
+    if sys.platform == 'win32':
+        _setup_firewall_rule(port, interactive=True)
+
     print("Use --setup to register, --remove to unregister\n")
     return started
+
+
+def _firewall_rule_exists():
+    """Check whether the ccpeek firewall rule already exists."""
+    result = subprocess.run(
+        ['powershell', '-NoProfile', '-Command',
+         f"Get-NetFirewallRule -DisplayName '{FIREWALL_RULE_NAME}' "
+         f"-ErrorAction SilentlyContinue"],
+        capture_output=True, text=True
+    )
+    return result.returncode == 0 and FIREWALL_RULE_NAME in result.stdout
+
+
+def _setup_firewall_rule(port, interactive=False):
+    """Add or remove a Windows Firewall inbound rule for LAN access."""
+    if _firewall_rule_exists():
+        print(f"Firewall rule '{FIREWALL_RULE_NAME}' already exists")
+        return
+
+    if interactive:
+        try:
+            answer = input(
+                f"Allow LAN access through Windows Firewall (port {port})? [Y/n] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            answer = 'n'
+        if answer in ('n', 'no'):
+            print("Skipped firewall rule")
+            return
+
+    ps_cmd = (
+        f"New-NetFirewallRule -DisplayName '{FIREWALL_RULE_NAME}' "
+        f"-Direction Inbound -Protocol TCP -LocalPort {port} "
+        f"-Action Allow -Profile Any"
+    )
+    try:
+        _run_ps_elevated(ps_cmd)
+    except FileNotFoundError:
+        print("PowerShell not available, skipped firewall rule")
+        return
+
+    if _firewall_rule_exists():
+        print(f"Added firewall rule '{FIREWALL_RULE_NAME}'")
+    else:
+        print("Could not add firewall rule")
+
+
+def _remove_firewall_rule():
+    """Remove the ccpeek Windows Firewall rule if it exists."""
+    result = subprocess.run(
+        ['powershell', '-NoProfile', '-Command',
+         f"Get-NetFirewallRule -DisplayName '{FIREWALL_RULE_NAME}' "
+         f"-ErrorAction SilentlyContinue"],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0 and FIREWALL_RULE_NAME in result.stdout:
+        _run_ps_elevated(
+            f"Remove-NetFirewallRule -DisplayName '{FIREWALL_RULE_NAME}'"
+        )
+        print(f"Removed firewall rule '{FIREWALL_RULE_NAME}'")
 
 
 def run_remove():
     """Remove the background service registration."""
     if sys.platform == 'win32':
         _setup_windows_task(0, False)
+        _remove_firewall_rule()
     else:
         _setup_systemd_service(0, False)
 
