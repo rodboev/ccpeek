@@ -20,6 +20,7 @@ DEFAULT_HOST = '127.0.0.1'
 LOCAL_HOSTS = {'127.0.0.1', 'localhost', '::1'}
 SETUP_MARKER = os.path.expanduser('~/.config/ccpeek/.setup-done')
 UNIT_PATH = os.path.expanduser('~/.config/systemd/user/ccpeek.service')
+TASK_NAME = 'CCPeek'
 
 class CCPeekHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -62,8 +63,8 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
         so we verify the result exists on disk.
         """
         sep = os.sep
-        # Split on '--' first (drive letter boundary on Windows)
-        major = encoded.split('--')
+        # Split on '--' only at the drive letter boundary (first occurrence)
+        major = encoded.split('--', 1)
         if len(major) == 2 and len(major[0]) == 1 and major[0].isalpha():
             prefix = major[0].upper() + ':' + sep
             rest = major[1]
@@ -71,9 +72,12 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             prefix = sep
             rest = encoded
 
-        segments = rest.split('-')
-        # Try progressively merging adjacent segments with '-' or '_'
-        # to find a path that actually exists on disk
+        segments = [s for s in rest.split('-') if s]
+        # Try progressively merging adjacent segments with various joiners
+        # to find a path that actually exists on disk.
+        # '.' covers dot-prefixed dirs like .claude (encoded as -claude after
+        # the preceding segment, producing '--' which split+filter leaves as
+        # adjacent segments).
         def resolve(segs, idx, current):
             if idx == len(segs):
                 full = prefix + current
@@ -84,16 +88,39 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
             for joiner in (sep, '-', '_'):
                 next_path = (current + joiner + part) if current else part
                 yield from resolve(segs, idx + 1, next_path)
+            if current:
+                next_path = current + sep + '.' + part
+                yield from resolve(segs, idx + 1, next_path)
 
         for candidate in resolve(segments, 0, ''):
             return candidate
         # Fallback: simple dash-to-sep replacement
         return prefix + rest.replace('-', sep)
 
+    def _load_job_sessions(self):
+        """Load background job metadata, keyed by sessionId."""
+        jobs_dir = os.path.expanduser('~/.claude/jobs')
+        job_sessions = {}
+        if os.path.exists(jobs_dir):
+            for entry in os.scandir(jobs_dir):
+                if entry.is_dir():
+                    state_path = os.path.join(entry.path, 'state.json')
+                    if os.path.exists(state_path):
+                        try:
+                            with open(state_path, 'r', encoding='utf-8') as f:
+                                state = json.load(f)
+                            sid = state.get('sessionId')
+                            if sid:
+                                job_sessions[sid] = state
+                        except Exception:
+                            pass
+        return job_sessions
+
     def handle_conversations(self, include_internal=False):
         """Get list of all conversations"""
         claude_dir = os.path.expanduser('~/.claude/projects')
         conversations = []
+        job_sessions = self._load_job_sessions()
 
         if os.path.exists(claude_dir):
             # Cache decoded project dirs per encoded dirname
@@ -147,8 +174,9 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                                 if si > 1:
                                     parent_id = rel_parts[si - 1]
 
-                            conversations.append({
-                                'id': os.path.basename(jsonl_file).replace('.jsonl', ''),
+                            conv_id = os.path.basename(jsonl_file).replace('.jsonl', '')
+                            conv = {
+                                'id': conv_id,
                                 'path': jsonl_file,
                                 'project_dir': project_dir,
                                 'parent_id': parent_id,
@@ -156,7 +184,12 @@ class CCPeekHandler(SimpleHTTPRequestHandler):
                                 'timestamp': data.get('timestamp', ''),
                                 'modified': stats.st_mtime,
                                 'size': stats.st_size
-                            })
+                            }
+                            job = job_sessions.get(conv_id)
+                            if job:
+                                conv['is_background'] = True
+                                conv['job_state'] = job.get('state')
+                            conversations.append(conv)
                 except Exception as e:
                     print(f"Error reading {jsonl_file}: {e}")
 
@@ -518,24 +551,47 @@ def mark_setup_done():
 def run_setup(port):
     """Interactive first-time setup wizard.
 
-    Returns True if systemd service started successfully, False otherwise.
+    Returns True if background service started successfully, False otherwise.
     """
     print("-- ccpeek setup --\n")
 
+    mechanism = "Task Scheduler" if sys.platform == 'win32' else "systemd"
+
     try:
         answer = input(
-            f"Start ccpeek automatically on login via systemd (port {port})? [y/N] "
+            f"Start ccpeek automatically on login via {mechanism} (port {port})? [Y/n] "
         ).strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         answer = 'n'
 
-    # Mark setup done immediately after user answers
     mark_setup_done()
 
-    systemd_started = False
+    if answer in ('n', 'no'):
+        print(f"Skipped {mechanism} registration")
+        print("Use --setup to register, --remove to unregister\n")
+        return False
 
-    if answer in ('y', 'yes'):
+    if sys.platform == 'win32':
+        started = _setup_windows_task(port, True)
+    else:
+        started = _setup_systemd_service(port, True)
+
+    print("Use --setup to register, --remove to unregister\n")
+    return started
+
+
+def run_remove():
+    """Remove the background service registration."""
+    if sys.platform == 'win32':
+        _setup_windows_task(0, False)
+    else:
+        _setup_systemd_service(0, False)
+
+
+def _setup_systemd_service(port, enable):
+    """Create or remove the systemd user service."""
+    if enable:
         bin_path = get_ccpeek_bin()
         unit = (
             "[Unit]\n"
@@ -558,14 +614,14 @@ def run_setup(port):
         try:
             subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
             subprocess.run(['systemctl', '--user', 'enable', '--now', 'ccpeek'], check=True)
-            time.sleep(1)  # give the service a moment to bind
+            time.sleep(1)
             print(f"Registered and started ccpeek on port {port}")
-            systemd_started = True
+            return True
         except (FileNotFoundError, subprocess.CalledProcessError):
-            # systemctl not available (WSL, no systemd) or command failed
             if os.path.exists(UNIT_PATH):
                 os.remove(UNIT_PATH)
             print("Could not register systemd service, starting foreground server")
+            return False
     else:
         if os.path.exists(UNIT_PATH):
             subprocess.run(['systemctl', '--user', 'disable', '--now', 'ccpeek'],
@@ -575,9 +631,94 @@ def run_setup(port):
             print("Removed existing ccpeek systemd service")
         else:
             print("Skipped systemd registration")
+        return False
 
-    print("Re-run anytime with: ccpeek --setup\n")
-    return systemd_started
+
+def _run_ps_elevated(ps_cmd):
+    """Run a PowerShell command, elevating via UAC if needed.
+
+    Tries direct execution first.  On failure, re-launches the same
+    command inside an elevated PowerShell via Start-Process -Verb RunAs,
+    using -EncodedCommand to avoid nested quoting issues.
+    """
+    result = subprocess.run(
+        ['powershell', '-NoProfile', '-Command', ps_cmd],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return
+    import base64
+    encoded = base64.b64encode(ps_cmd.encode('utf-16-le')).decode('ascii')
+    subprocess.run(
+        ['powershell', '-NoProfile', '-Command',
+         f"Start-Process powershell -Verb RunAs -Wait "
+         f"-ArgumentList '-NoProfile','-EncodedCommand','{encoded}'"],
+        capture_output=True
+    )
+
+
+def _setup_windows_task(port, enable):
+    """Create or remove the Windows scheduled task."""
+    if enable:
+        pythonw = shutil.which('pythonw')
+        if not pythonw:
+            python_dir = os.path.dirname(sys.executable)
+            candidate = os.path.join(python_dir, 'pythonw.exe')
+            if os.path.exists(candidate):
+                pythonw = candidate
+
+        if not pythonw:
+            print("Could not find pythonw.exe, starting foreground server")
+            return False
+
+        script = os.path.abspath(__file__)
+        workdir = os.path.dirname(script)
+        task_args = f'"{script}" --no-browser --port {port}'
+
+        username = os.environ.get('USERNAME', '')
+        ps_cmd = (
+            f"$action = New-ScheduledTaskAction -Execute '{pythonw}' "
+            f"-Argument '{task_args}' -WorkingDirectory '{workdir}'; "
+            f"$trigger = New-ScheduledTaskTrigger -AtLogOn -User '{username}'; "
+            f"Register-ScheduledTask -TaskName '{TASK_NAME}' "
+            f"-Action $action -Trigger $trigger -Force; "
+            f"Start-ScheduledTask -TaskName '{TASK_NAME}'"
+        )
+
+        try:
+            _run_ps_elevated(ps_cmd)
+        except FileNotFoundError:
+            print("PowerShell not available, starting foreground server")
+            return False
+
+        result = subprocess.run(
+            ['schtasks', '/query', '/tn', TASK_NAME],
+            capture_output=True
+        )
+        if result.returncode != 0:
+            print("Could not create scheduled task, starting foreground server")
+            return False
+
+        time.sleep(1)
+        print(f"Created and started scheduled task '{TASK_NAME}' on port {port}")
+        return True
+    else:
+        try:
+            result = subprocess.run(
+                ['schtasks', '/query', '/tn', TASK_NAME],
+                capture_output=True
+            )
+            if result.returncode == 0:
+                _run_ps_elevated(
+                    f"Unregister-ScheduledTask -TaskName '{TASK_NAME}' "
+                    f"-Confirm:$false"
+                )
+                print(f"Removed scheduled task '{TASK_NAME}'")
+            else:
+                print("Skipped Task Scheduler registration")
+        except FileNotFoundError:
+            print("Skipped Task Scheduler registration")
+        return False
 
 
 def main(argv=None):
@@ -600,11 +741,17 @@ def main(argv=None):
     parser.add_argument('--port', type=int, default=default_port, help='Preferred port to bind (default: %(default)s)')
     parser.add_argument('--open-browser', dest='open_browser', action='store_true', help='Open a browser window after startup')
     parser.add_argument('--no-browser', dest='open_browser', action='store_false', help='Do not launch a browser window')
-    parser.add_argument('--setup', action='store_true', help='Run interactive setup wizard')
+    parser.add_argument('--setup', action='store_true', help='Register as a background service')
+    parser.add_argument('--remove', action='store_true', help='Unregister the background service')
     parser.set_defaults(open_browser=default_open_browser)
 
     args = parser.parse_args(argv)
     host = args.host
+
+    # --remove: unregister and exit
+    if args.remove:
+        run_remove()
+        sys.exit(0)
 
     # Setup wizard: on --setup or first interactive launch
     systemd_started = False
@@ -637,7 +784,7 @@ def main(argv=None):
                 sys.exit(1)
             print(f"Port in use by another service, using port {args.port}")
 
-    # --setup is config-only; don't start a server
+    # --setup is config-only; don't start a foreground server
     if args.setup:
         sys.exit(0)
 

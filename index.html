@@ -1052,8 +1052,9 @@
             document.getElementById('sidebar').classList.toggle('collapsed');
         }
 
-        function buildResumeCmd(convId, projectDir) {
-            const resumePart = `claude --resume ${convId}`;
+        function buildResumeCmd(convId, projectDir, isBackground) {
+            let resumePart = `claude --resume ${convId}`;
+            if (isBackground) resumePart += ' --fork-session';
             if (projectDir) {
                 const isWindows = /^[A-Z]:\\/.test(projectDir);
                 const quote = projectDir.includes(' ') ? '"' : '';
@@ -1078,18 +1079,21 @@
                 return;
             }
 
-            let resumeId, projectDir;
+            let resumeId, projectDir, isBackground;
             if (conv.parent_id) {
                 label.textContent = 'Resume parent:';
                 resumeId = conv.parent_id;
                 projectDir = conv.project_dir;
+                const parentConv = allConversations.find(c => c.id === conv.parent_id);
+                isBackground = parentConv?.is_background;
             } else {
                 label.textContent = 'To resume:';
                 resumeId = currentConversation;
                 projectDir = conv.project_dir;
+                isBackground = conv.is_background;
             }
 
-            document.getElementById('resumeCmdText').textContent = buildResumeCmd(resumeId, projectDir);
+            document.getElementById('resumeCmdText').textContent = buildResumeCmd(resumeId, projectDir, isBackground);
             bar.classList.add('show');
         }
 
