@@ -458,6 +458,10 @@
             margin-bottom: 0;
         }
 
+        .message-text h2 {
+            font-size: 1.25em;
+        }
+
         .message-text a {
             color: #c9a96e;
             text-decoration: underline;
@@ -903,7 +907,8 @@
             
             if (message.content) {
                 if (typeof message.content === 'string') {
-                    content = highlightTerm ? highlightText(escapeHtml(message.content), highlightTerm) : escapeHtml(message.content);
+                    let text = linkifyUrls(escapeHtml(message.content));
+                    content = highlightTerm ? highlightText(text, highlightTerm) : text;
                 } else if (Array.isArray(message.content)) {
                     // If it's a tool result, render it differently
                     if (isToolResult) {
@@ -918,7 +923,7 @@
                         // Regular user message with text content
                         content = message.content.map(item => {
                             if (item.type === 'text') {
-                                const text = escapeHtml(item.text || '');
+                                const text = linkifyUrls(escapeHtml(item.text || ''));
                                 return highlightTerm ? highlightText(text, highlightTerm) : text;
                             }
                             return '';
@@ -1026,6 +1031,20 @@
             return div.innerHTML;
         }
 
+        function linkifyUrls(html) {
+            return html.replace(
+                /(?:<a\s[^>]*>.*?<\/a>)|(?:<code[^>]*>[\s\S]*?<\/code>)|(?:<pre[^>]*>[\s\S]*?<\/pre>)|((?:https?:\/\/|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|org|net|dev|io|co|edu|gov|app|build|page|site|world|info)\b)(?:\/[^\s<>"\])]*)?)/gi,
+                (match, url) => {
+                    if (!url) return match;
+                    const href = url.match(/^https?:\/\//i) ? url : `https://${url}`;
+                    const clean = href.replace(/[.,;:!?)]+$/, '');
+                    const trailing = href.slice(clean.length);
+                    const displayClean = url.replace(/[.,;:!?)]+$/, '');
+                    return `<a href="${clean}" target="_blank" rel="noopener">${displayClean}</a>${trailing}`;
+                }
+            );
+        }
+
         const markedInstance = new marked.Marked({ breaks: true, gfm: true });
         markedInstance.use({ renderer: {
             code({ text }) {
@@ -1036,8 +1055,7 @@
             },
             heading({ tokens, depth }) {
                 const text = this.parser.parseInline(tokens);
-                const level = Math.min(depth + 1, 6);
-                return `<h${level}>${text}</h${level}>`;
+                return `<h${depth}>${text}</h${depth}>`;
             },
         }});
 
@@ -1045,6 +1063,7 @@
             let html = markedInstance.parse(text);
             html = html.replace(/<br>\s*<code>(─+)<\/code><\/li>\s*<\/(ul|ol)>/g,
                 '</li></$2><p><code>$1</code></p>');
+            html = linkifyUrls(html);
             return html;
         }
 
