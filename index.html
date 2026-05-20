@@ -1126,6 +1126,15 @@
             `;
         }
 
+        function closeOpenCodeFences(text) {
+            let open = 0;
+            const lines = text.split('\n');
+            for (const line of lines) {
+                if (/^(`{3,})/.test(line.trim())) open += 1;
+            }
+            return open % 2 !== 0 ? text + '\n```' : text;
+        }
+
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
@@ -1468,54 +1477,52 @@
             markdown += `**Date:** ${new Date().toLocaleString()}\n\n---\n\n`;
             
             allMessages.forEach(msg => {
-                // Skip tool messages if filter is enabled
-                let skipMessage = false;
-                
                 if (msg.type === 'user' && msg.message) {
                     // Skip local command messages
-                    if (typeof msg.message.content === 'string' && 
-                        (msg.message.content.includes('<command-name>') || 
+                    if (typeof msg.message.content === 'string' &&
+                        (msg.message.content.includes('<command-name>') ||
                          msg.message.content.includes('<local-command-stdout>') ||
                          msg.message.content.includes('Caveat: The messages below were generated'))) {
                         return;
                     }
-                    
+
                     // Skip tool results if filter is enabled
                     if (filterToolsEnabled && Array.isArray(msg.message.content)) {
                         const hasToolResult = msg.message.content.some(item => item.type === 'tool_result');
                         if (hasToolResult) return;
                     }
-                    
-                    markdown += `## User\n\n`;
+
+                    let content = '';
                     if (typeof msg.message.content === 'string') {
-                        markdown += msg.message.content + '\n\n';
+                        content = msg.message.content;
                     } else if (Array.isArray(msg.message.content)) {
                         msg.message.content.forEach(item => {
-                            if (item.type === 'text') markdown += item.text + '\n\n';
+                            if (item.type === 'text') content += item.text + '\n\n';
                         });
                     }
+                    content = closeOpenCodeFences(content.trimEnd());
+                    if (!content) return;
+                    markdown += `## User\n\n${content}\n\n---\n\n`;
                 } else if (msg.type === 'assistant' && msg.message) {
-                    // Skip tool uses if filter is enabled
-                    if (filterToolsEnabled && Array.isArray(msg.message.content)) {
-                        const hasToolUse = msg.message.content.some(item => item.type === 'tool_use');
-                        if (hasToolUse) return;
-                    }
-                    
-                    markdown += `## Claude\n\n`;
+                    let content = '';
                     if (typeof msg.message.content === 'string') {
-                        markdown += msg.message.content + '\n\n';
+                        content = msg.message.content;
                     } else if (Array.isArray(msg.message.content)) {
                         msg.message.content.forEach(item => {
-                            if (item.type === 'text') markdown += item.text + '\n\n';
+                            if (item.type === 'text') content += item.text + '\n\n';
                             if (!filterToolsEnabled && item.type === 'tool_use') {
-                                markdown += `**Tool:** ${item.name}\n\`\`\`json\n${JSON.stringify(item.input, null, 2)}\n\`\`\`\n\n`;
+                                content += `**Tool:** ${item.name}\n\`\`\`json\n${JSON.stringify(item.input, null, 2)}\n\`\`\`\n\n`;
                             }
                         });
                     }
+                    content = content.trimEnd();
+                    if (!content) return;
+                    markdown += `## Claude\n\n${content}\n\n---\n\n`;
                 }
-                markdown += '---\n\n';
             });
-            
+
+            markdown = markdown.replace(/(\n---\n\n)+$/, '\n');
+
             const blob = new Blob([markdown], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
